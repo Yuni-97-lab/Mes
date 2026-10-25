@@ -1,6 +1,7 @@
 """입력 엔드포인트: 작업지시 생성, 생산실적 입력, 설비 상태 변경.
 
-커밋은 get_conn 이 한다.
+커밋은 get_conn 이 한다. 쓰기 엔드포인트는 Depends(get_conn, scope="function") 이라 핸들러가 끝나면
+응답을 보내기 *전에* commit 한다 (기본 "request" 스코프는 응답 전송 후 commit → 커밋 실패해도 사용자는 성공을 봄).
 DB 예외는 translate_db_error 로 HTTP 오류(409 등)로 바꾼다.
 """
 from collections.abc import Callable
@@ -24,7 +25,7 @@ T = TypeVar("T")
 
 
 def write_conn():
-    return Depends(get_conn)
+    return Depends(get_conn, scope="function")
 
 
 def _translated(fn: Callable[[], T]) -> T:
