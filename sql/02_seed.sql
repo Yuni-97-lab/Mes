@@ -34,14 +34,16 @@ INSERT INTO process (code, name, seq) VALUES
     ('PACK',  '포장',     6);
 
 -- 라우팅: SFG 는 자재투입→SMT→AOI, FG 는 조립→기능검사→포장 (ideal_cycle_sec 은 개당 초)
+-- 라인 밸런싱: 같은 품목의 공정별 사이클을 비슷하게 맞추고 SMT·조립을 약간 느린 병목으로 둔다
+-- (한 공정만 크게 느리면 나머지 설비가 대부분 자재대기가 된다).
 INSERT INTO routing (item_id, process_id, seq, ideal_cycle_sec)
 SELECT i.item_id, p.process_id, v.seq, v.cycle
 FROM (VALUES
-    ('SFG-P01', 'MATIN', 1,  4.0), ('SFG-P01', 'SMT', 2, 18.0), ('SFG-P01', 'AOI', 3,  6.0),
-    ('SFG-P02', 'MATIN', 1,  3.0), ('SFG-P02', 'SMT', 2, 12.0), ('SFG-P02', 'AOI', 3,  5.0),
-    ('FG-A100', 'ASM',   1, 25.0), ('FG-A100', 'FCT', 2, 15.0), ('FG-A100', 'PACK', 3,  8.0),
-    ('FG-B200', 'ASM',   1, 30.0), ('FG-B200', 'FCT', 2, 20.0), ('FG-B200', 'PACK', 3,  8.0),
-    ('FG-C300', 'ASM',   1, 40.0), ('FG-C300', 'FCT', 2, 28.0), ('FG-C300', 'PACK', 3, 10.0)
+    ('SFG-P01', 'MATIN', 1, 10.0), ('SFG-P01', 'SMT', 2, 12.0), ('SFG-P01', 'AOI', 3, 11.0),
+    ('SFG-P02', 'MATIN', 1,  8.0), ('SFG-P02', 'SMT', 2, 10.0), ('SFG-P02', 'AOI', 3,  9.0),
+    ('FG-A100', 'ASM',   1, 20.0), ('FG-A100', 'FCT', 2, 18.0), ('FG-A100', 'PACK', 3, 16.0),
+    ('FG-B200', 'ASM',   1, 24.0), ('FG-B200', 'FCT', 2, 22.0), ('FG-B200', 'PACK', 3, 20.0),
+    ('FG-C300', 'ASM',   1, 30.0), ('FG-C300', 'FCT', 2, 28.0), ('FG-C300', 'PACK', 3, 25.0)
 ) AS v(item_code, process_code, seq, cycle)
 JOIN item i ON i.item_code = v.item_code
 JOIN process p ON p.code = v.process_code;
