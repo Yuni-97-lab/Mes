@@ -109,3 +109,58 @@ body { margin: 0; background: var(--bg); font-size: 14px; line-height: 1.5; }
 .eq-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px; border-bottom: 1px solid var(--border); }
 .eq-table td { padding: 4px; border-bottom: 1px solid var(--grid); }
 @media (max-width: 1100px) { .floor-layout { grid-template-columns: 1fr; } .eq-panel { position: static; } }
+
+/* 작업지시 / 실적 입력 */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.page-head .page-title { margin: 0; }
+.crumb { margin: -8px 0 16px; }
+a { color: var(--accent); }
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 8px; border: 1px solid transparent; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+.btn:focus-visible, .tab:focus-visible, .data-table tr.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--bg); }
+.btn-ghost { background: none; color: var(--down); align-self: end; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.banner-ok { background: var(--run-bg); color: var(--run); border: 1px solid #86efac; }
+.banner-ok a { color: inherit; font-weight: 700; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 16px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; margin-bottom: -1px; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.table-card { padding: 0; overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.data-table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.data-table td { padding: 11px 14px; border-bottom: 1px solid var(--grid); }
+.data-table .num { text-align: right; }
+.data-table tr.clickable { cursor: pointer; }
+.data-table tr.clickable:hover { background: var(--bg); }
+.progress-col { min-width: 160px; }
+.progress-cell { display: flex; align-items: center; gap: 10px; }
+.progress-cell .progress { flex: 1; }
+.progress-cell .num { min-width: 48px; font-size: 12px; }
+.empty { padding: 28px; text-align: center; margin: 0; }
+
+.card + .card, .banner + .card, .card + .tabs { margin-top: 16px; }
+.wo-form { margin-bottom: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 16px; margin-bottom: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.field select, .field input { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); min-width: 0; }
+.field select:disabled { background: var(--bg); color: var(--muted); }
+.field select:focus-visible, .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.form-section { margin: 18px 0 10px; }
+.form-msg { margin: 14px 0 0; }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.result-form { max-width: 900px; }
+.result-form > .field { margin-bottom: 14px; }
+.defect-rows { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.defect-row { display: grid; grid-template-columns: minmax(160px, 2fr) 1fr 1fr auto; gap: 12px; width: 100%; }
+.defect-empty { margin: 0; }
+.detail-summary .eq-facts { grid-template-columns: 90px 1fr; }
+.detail-grid { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; margin-top: 16px; align-items: start; }
+.detail-grid .card + .card { margin-top: 0; }
+.lot-scroll { max-height: 420px; overflow: auto; }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .defect-row { grid-template-columns: 1fr 1fr; } }

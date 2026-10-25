@@ -1,6 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
-import { apiGet } from './client'
-import type { DefectRow, Equipment, EquipmentDetail, Kpi, Lookups, OeeEquipment, WorkOrder } from './types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiGet, apiPost } from './client'
+import type {
+  DefectRow, Equipment, EquipmentDetail, Kpi, Lookups, OeeEquipment, ResultCreated, ResultIn,
+  WoOptions, WorkOrder, WorkOrderCreated, WorkOrderDetail, WorkOrderIn,
+} from './types'
 
 const POLL_MS = 5000
 
@@ -50,3 +53,39 @@ export const useEquipmentDetail = (id: number | null) =>
     enabled: id != null,
     refetchInterval: POLL_MS,
   })
+
+export const useWorkOrderDetail = (id: number | null) =>
+  useQuery({
+    queryKey: ['work-order', id],
+    queryFn: () => apiGet<WorkOrderDetail>(`/api/work-orders/${id}`),
+    enabled: id != null,
+    refetchInterval: POLL_MS,
+  })
+
+export const useWorkOrderOptions = (id: number | null) =>
+  useQuery({
+    queryKey: ['work-order-options', id],
+    queryFn: () => apiGet<WoOptions>(`/api/work-orders/${id}/options`),
+    enabled: id != null,
+  })
+
+export const useCreateWorkOrder = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: WorkOrderIn) => apiPost<WorkOrderCreated>('/api/work-orders', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['work-orders'] }),
+  })
+}
+
+export const useCreateResult = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: ResultIn) => apiPost<ResultCreated>('/api/results', body),
+    onSuccess: () =>
+      Promise.all(
+        ['work-orders', 'work-order', 'work-order-options', 'equipment', 'kpi', 'oee-equipment', 'defects'].map(
+          (k) => qc.invalidateQueries({ queryKey: [k] }),
+        ),
+      ),
+  })
+}

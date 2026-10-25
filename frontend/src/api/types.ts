@@ -87,3 +87,28 @@ export interface EquipmentDetail extends Equipment {
   recent_oee: OeeShift[]
   recent_results: ResultRow[]
 }
+
+export interface WoProcess { process_code: string; process_seq: number; good_qty: number; defect_qty: number }
+export interface WoLot { lot_no: string; process_code: string | null; qty: number; created_at: string }
+export interface WorkOrderDetail extends WorkOrder {
+  processes: WoProcess[]
+  lots: WoLot[]
+}
+
+export interface OptEquipment { equipment_id: number; name: string }
+export interface OptProcess { process_id: number; code: string; name: string; seq: number; equipment: OptEquipment[] }
+export interface WoOptions { wo_id: number; status: 'PLANNED' | 'RUNNING' | 'DONE' | string; processes: OptProcess[] }
+
+export interface WorkOrderIn { item_id: number; line_id: number; planned_qty: number; due_date: string }
+export interface WorkOrderCreated { wo_id: number }
+
+export interface DefectIn { defect_id: number; kind: 'rework' | 'scrap'; qty: number }
+export interface ResultIn {
+  wo_id: number
+  process_id: number
+  equipment_id: number
+  minutes: number
+  good_qty: number
+  defects: DefectIn[]
+}
+export interface ResultCreated { result_id: number; lot_no: string }
