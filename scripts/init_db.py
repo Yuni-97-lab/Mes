@@ -8,13 +8,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mes.db import connect  # noqa: E402
 
 
-def apply_sql(conn, sql_dir: Path = Path("sql")) -> list[str]:
-    """sql_dir 의 *.sql 을 파일명 오름차순으로 실행하고 적용한 파일명을 반환한다."""
+def apply_sql(conn, sql_dir: Path = Path("sql"), include=None) -> list[str]:
+    """sql_dir 의 *.sql 을 파일명 오름차순으로 실행하고 적용한 파일명을 반환한다.
+
+    include(파일명) -> bool 로 대상을 거를 수 있다. 커밋은 호출자 책임이다.
+    """
     applied = []
     for path in sorted(Path(sql_dir).glob("*.sql")):
+        if include and not include(path.name):
+            continue
         conn.execute(path.read_text(encoding="utf-8"))
         applied.append(path.name)
-    conn.commit()
     return applied
 
 
@@ -36,6 +40,7 @@ def main() -> None:
             reset_schema(conn)
         for name in apply_sql(conn, root / "sql"):
             print(f"적용: {name}")
+        conn.commit()
 
 
 if __name__ == "__main__":

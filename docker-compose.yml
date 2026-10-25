@@ -10,5 +10,6 @@ services:
       - "5432:5432"
     volumes:
       - mes_pgdata:/var/lib/postgresql/data
+      - ./scripts/docker_init_test_db.sh:/docker-entrypoint-initdb.d/10_test_db.sh:ro
 volumes:
   mes_pgdata:
