@@ -175,6 +175,26 @@ def test_full_shift_oee_and_performance_are_plausible(factory_day):
     assert 0.5 <= float(oee) <= 0.8
 
 
+def test_results_split_at_shift_boundaries(seeded_db):
+    conn = seeded_db
+    # 틱이 교대 경계(08:00, 20:00)를 걸치도록 07:55 부터 시작: 실적이 교대 창을 넘지 않아야 성능률이 1을 넘지 않는다
+    start = datetime(2026, 3, 2, 7, 55, tzinfo=KST)
+    end = _factory(conn, 3, 80, 600, start)
+    crossing = _scalar(conn, """
+        SELECT count(*) FROM production_result pr JOIN shift s USING (shift_id)
+        WHERE pr.started_at::time < s.end_time AND pr.ended_at::time > s.end_time
+           OR (pr.started_at::time < s.start_time AND pr.ended_at::time > s.start_time
+               AND pr.started_at::date = pr.ended_at::date)""")
+    assert crossing == 0
+    assert _scalar(conn, "SELECT max(performance) FROM v_oee_daily WHERE shift_end <= %s", (end,)) <= 1.0
+    # 실적의 교대 = 실적 시작 시각의 교대
+    wrong = _scalar(conn, """SELECT count(*) FROM production_result pr JOIN shift s USING (shift_id)
+                             WHERE NOT (CASE WHEN s.start_time < s.end_time
+                                             THEN pr.started_at::time >= s.start_time AND pr.started_at::time < s.end_time
+                                             ELSE pr.started_at::time >= s.start_time OR pr.started_at::time < s.end_time END)""")
+    assert wrong == 0
+
+
 def test_defects_concentrate_at_inspection_processes(factory_day):
     conn, _, _ = factory_day
     rate = dict(conn.execute("SELECT process_code, defect_rate FROM v_defect_rate").fetchall())

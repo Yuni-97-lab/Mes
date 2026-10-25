@@ -317,8 +317,8 @@ def _context(conn):
 def step(conn, now: datetime, rng: random.Random, tick_seconds: float = 60) -> int:
     """한 틱 [now - tick_seconds, now] 진행. 적재한 실적 행 수를 반환한다.
 
-    설비를 라인 → 공정 순으로 돌며: 일감 확인 → 틱 시작 시각의 상태 전이 → RUN 이면 생산.
-    생산량 = 틱 동안의 가동 시간 x 속도(PERF_RANGE) / 이상 사이클 (확률적 반올림), 투입 가능 수량을 넘지 않음.
+    설비를 라인 → 공정 순으로 돌며: 일감 확인 → 틱 시작 시각의 상태 전이 → RUN 이면 생산(_produce).
+    틱이 교대 경계를 걸치면 경계에서 실적을 나눈다(실적 교대 = 실적 시작 시각의 교대).
     투입 가능 수량이 먼저 바닥나면 그 시각에 RUN 을 끝내고 IDLE(자재대기)로 바꾼다 (일감 없는 RUN 시간 없음).
     재고 부족(CheckViolation)·초과생산/재고 행 없음(RaiseException)은 savepoint 롤백으로 해당 실적만 건너뛴다.
     """
@@ -337,35 +337,53 @@ def step(conn, now: datetime, rng: random.Random, tick_seconds: float = 60) -> i
                                             work is not None)
         if status != "RUN" or work is None:
             continue
-        start = max(t0, since)
-        dur = (now - start).total_seconds()
-        if dur <= 0:
-            continue
         wo_id, item_id, idx, headroom = work
         stages = ctx["routing"][item_id]
-        cycle = stages[idx][1]
-        perf = rng.uniform(*PERF_RANGE)
-        cap = dur * perf / cycle
-        cap = int(cap) + (1 if rng.random() < cap - int(cap) else 0)   # 확률적 반올림(짧은 틱에서도 편향 없음)
-        qty = min(headroom, cap)
-        if qty <= 0:
-            continue
-        end = now if qty == cap else start + timedelta(seconds=qty * cycle / perf)
-        lo, hi = DEFECT_RATE.get(ctx["pcodes"][process_id], (0.02, 0.05))
-        rate = rng.uniform(lo, hi)
-        defect = sum(1 for _ in range(qty) if rng.random() < rate)
         eq = {"id": eid, "process_id": process_id, "code": ctx["pcodes"][process_id],
               "prev_process": stages[idx - 1][0] if idx > 0 else None}
-        try:
-            with conn.transaction():
-                _insert_result(conn, ctx, (wo_id, item_id), eq, idx, qty - defect, defect,
-                               _shift_id(ctx["shifts"], start), start, end, rng)
-            inserted += 1
-        except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException):
-            continue   # 재고 부족/초과생산: 이 실적만 건너뜀 (다음 틱에 재시도)
-        if end < now:   # 일감 소진: 남은 시간은 자재대기
-            _set_state(conn, eid, log_id, end, "IDLE", ctx["reasons"][STARVED])
+        seg = max(t0, since)
+        while seg < now and headroom > 0:   # 교대 경계에서 실적을 나눠 각 교대 OEE 에 정확히 귀속
+            stop = min(now, _next_shift_start(ctx["shifts"], seg))
+            n, end = _produce(conn, ctx, eq, (wo_id, item_id), idx, headroom, seg, stop, rng)
+            inserted += n > 0
+            headroom -= n
+            if end < stop:   # 일감 소진(또는 적재 실패): 남은 시간은 자재대기
+                _set_state(conn, eid, log_id, end, "IDLE", ctx["reasons"][STARVED])
+                break
+            seg = stop
     return inserted
+
+
+def _next_shift_start(shifts, at):
+    """at 이후(초과) 가장 가까운 교대 시작 시각."""
+    at = at.astimezone(KST)
+    return min(c for _, s, _ in shifts for d in (0, 1)
+               if (c := datetime.combine(at.date() + timedelta(days=d), s, KST)) > at)
+
+
+def _produce(conn, ctx, eq, wo, idx, headroom, start, stop, rng):
+    """[start, stop] 구간 생산 실적 1건. 반환 (투입 수량, 가동 종료 시각).
+
+    생산량 = 구간 길이 x 속도(PERF_RANGE) / 이상 사이클 (확률적 반올림), headroom 을 넘지 않음.
+    headroom 에 먼저 닿으면 가동 종료 시각이 stop 보다 앞선다. 적재 실패 시 (0, stop): RUN 유지, 다음 틱에 재시도.
+    """
+    cycle = ctx["routing"][wo[1]][idx][1]
+    perf = rng.uniform(*PERF_RANGE)
+    cap = (stop - start).total_seconds() * perf / cycle
+    cap = int(cap) + (1 if rng.random() < cap - int(cap) else 0)   # 확률적 반올림(짧은 틱에서도 편향 없음)
+    qty = min(headroom, cap)
+    if qty <= 0:
+        return 0, stop
+    end = stop if qty == cap else start + timedelta(seconds=qty * cycle / perf)
+    rate = rng.uniform(*DEFECT_RATE.get(eq["code"], (0.02, 0.05)))
+    defect = sum(1 for _ in range(qty) if rng.random() < rate)
+    try:
+        with conn.transaction():
+            _insert_result(conn, ctx, wo, eq, idx, qty - defect, defect,
+                           _shift_id(ctx["shifts"], start), start, end, rng)
+    except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException):
+        return 0, stop   # 재고 부족/초과생산: 이 실적만 건너뜀 (다음 틱에 재시도)
+    return qty, end
 
 
 def replenish(conn) -> int:
