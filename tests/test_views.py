@@ -88,13 +88,14 @@ def test_oee_zero_runtime_is_zero_not_error(seeded_db):
     # 활동이 전혀 없는 설비는 뷰에 없다
     n = conn.execute("select count(*) from v_oee_daily where equipment_name = 'L2-SMT-01'").fetchone()[0]
     assert n == 0
-    # 로그만 있고 실적이 없으면 quality/performance 는 0
+    # 로그만 있고 실적이 없으면 performance/oee 는 0, quality 는 정의되지 않으므로 NULL
+    # (평균 품질률을 0 으로 끌어내리지 않게)
     _log(conn, "L2-SMT-01", "RUN", "2026-03-10 08:00", "2026-03-10 10:00")
     row = conn.execute(
         "select availability, performance, quality, oee from v_oee_daily where equipment_name = 'L2-SMT-01'"
     ).fetchone()
     assert float(row[0]) == pytest.approx(2 / 12, abs=1e-4)
-    assert [float(x) for x in row[1:]] == [0, 0, 0]
+    assert float(row[1]) == 0 and row[2] is None and float(row[3]) == 0
 
 
 def test_wo_progress_uses_last_process_good_qty(seeded_db):
@@ -184,6 +185,45 @@ def test_planned_downtime_straddling_boundary_is_clipped_per_shift(seeded_db):
     _log(conn, eq, "RUN", "2026-03-10 21:00", "2026-03-11 05:00")                  # 야간 8h
     assert _avail(conn, eq, "주간", "2026-03-10") == pytest.approx(9 / 11, abs=1e-4)
     assert _avail(conn, eq, "야간", "2026-03-10") == pytest.approx(8 / 11, abs=1e-4)
+
+
+def _current_shift_start_sql():
+    """now() 가 속한 교대의 시작 시각 (KST, 주간 08–20 / 야간 20–08)."""
+    return ("(case when now()::time >= '08:00' and now()::time < '20:00' then now()::date + time '08:00'"
+            " when now()::time >= '20:00' then now()::date + time '20:00'"
+            " else now()::date - 1 + time '20:00' end)::timestamptz")
+
+
+def test_in_progress_shift_planned_time_is_capped_at_now(seeded_db):
+    conn = seeded_db
+    # 현재 교대 시작부터 지금까지 쭉 RUN: 계획시간은 교대 전체(12h)가 아니라 지금까지의 경과 시간
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at)"
+        f" select equipment_id, 'RUN', {_current_shift_start_sql()} from equipment where name = 'L1-SMT-01'")
+    row = conn.execute(
+        "select availability, shift_start, shift_end, shift_end > now()"
+        f" from v_oee_daily where equipment_name = 'L1-SMT-01' and shift_start = {_current_shift_start_sql()}"
+    ).fetchone()
+    assert row is not None
+    assert float(row[0]) == pytest.approx(1.0, abs=1e-6)
+    assert row[3] is True and (row[2] - row[1]).total_seconds() == 12 * 3600
+
+
+def test_in_progress_shift_planned_downtime_and_idle(seeded_db):
+    conn = seeded_db
+    start = _current_shift_start_sql()
+    # 교대 시작 후 경과시간 E 중: 계획정지 0, 처음 절반 RUN, 이후 비계획 IDLE(진행 중) -> 가동률 0.5
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at, ended_at)"
+        f" select equipment_id, 'RUN', {start}, {start} + (now() - {start}) / 2"
+        " from equipment where name = 'L1-AOI-01'")
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at)"
+        f" select equipment_id, 'IDLE', {start} + (now() - {start}) / 2"
+        " from equipment where name = 'L1-AOI-01'")
+    a = conn.execute(f"select availability from v_oee_daily where equipment_name = 'L1-AOI-01'"
+                     f" and shift_start = {start}").fetchone()[0]
+    assert float(a) == pytest.approx(0.5, abs=1e-3)
 
 
 def test_open_ended_log_is_bounded_by_window_and_now(seeded_db):

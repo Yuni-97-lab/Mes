@@ -4,14 +4,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import altair as alt  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from dashboard import queries  # noqa: E402
+from dashboard.messages import EMPTY_MSG  # noqa: E402
 from mes.db import connect  # noqa: E402
 
 REFRESH_SEC = 5
-EMPTY_MSG = "데이터가 없습니다. 시뮬레이터를 실행하세요 (python -m simulator.simulate --speed 60)"
 STATUS_COLORS = {"RUN": "#2e7d32", "IDLE": "#9e9e9e", "DOWN": "#c62828"}
 BAR_COLOR = "#3b6ea5"
 
@@ -36,11 +37,21 @@ def has_data(d: dict) -> bool:
 
 
 def render_kpis(kpi: dict) -> None:
+    # 평균 OEE 는 최근 2교대(설비 x 교대 행) 평균. 진행 중인 교대는 지금까지의 시간만 계획시간으로 본다.
     # 전체 불량률은 모든 공정의 불량/투입 합으로 구한 공정 수준 풀링 비율이다.
     c1, c2, c3 = st.columns(3)
-    c1.metric("평균 OEE", "-" if kpi["avg_oee"] is None else f"{kpi['avg_oee']:.1%}")
+    c1.metric("평균 OEE (최근 2교대)", "-" if kpi["avg_oee"] is None else f"{kpi['avg_oee']:.1%}")
     c2.metric("전체 불량률 (공정 합산)", "-" if kpi["defect_rate"] is None else f"{kpi['defect_rate']:.2%}")
     c3.metric("가동 설비 수", f"{kpi['running']} / {kpi['total']}")
+
+
+def _bar(df: pd.DataFrame, x: str, x_title: str, y_title: str) -> alt.Chart:
+    """막대 차트. x 축은 SQL 이 정한 행 순서(라인 → 공정 순)를 그대로 쓴다 (알파벳 정렬 방지)."""
+    return (alt.Chart(df).mark_bar(color=BAR_COLOR)
+            .encode(x=alt.X(f"{x}:N", sort=None, title=x_title, axis=alt.Axis(labelAngle=-45)),
+                    y=alt.Y("v:Q", title=y_title),
+                    tooltip=[alt.Tooltip(f"{x}:N", title=x_title),
+                             alt.Tooltip("v:Q", title=y_title, format=".1f")]))
 
 
 def _color_status(val: str) -> str:
@@ -73,17 +84,17 @@ def render_defects(df: pd.DataFrame) -> None:
     if df.empty:
         st.caption("불량률 데이터가 없습니다.")
         return
-    chart = (df.set_index("process_code")[["defect_rate"]] * 100).rename(columns={"defect_rate": "불량률(%)"})
-    st.bar_chart(chart, color=BAR_COLOR)
+    st.altair_chart(_bar(df.assign(v=df["defect_rate"] * 100), "process_code", "공정", "불량률(%)"),
+                    width="stretch")
 
 
 def render_oee(df: pd.DataFrame) -> None:
-    st.subheader("설비별 OEE")
+    st.subheader("설비별 OEE (최근 2교대 평균)")
     if df.empty:
         st.caption("OEE 데이터가 없습니다.")
         return
-    chart = (df.set_index("equipment_name")[["oee"]] * 100).rename(columns={"oee": "OEE(%)"})
-    st.bar_chart(chart, color=BAR_COLOR)
+    st.altair_chart(_bar(df.assign(v=df["oee"] * 100), "equipment_name", "설비", "OEE(%)"),
+                    width="stretch")
 
 
 @st.fragment(run_every=REFRESH_SEC)
