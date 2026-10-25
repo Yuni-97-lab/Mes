@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from simulator.simulate import (clock_wait, ensure_work_orders, main, park_equipment, replenish,
-                                resume_point, step)
+                                resume_equipment, resume_point, step)
 
 KST = timezone(timedelta(hours=9))
 T0 = datetime(2026, 3, 2, 9, 0, tzinfo=KST)  # 주간조, 점심 이전
@@ -284,7 +284,7 @@ def test_resume_point_rules():
 
 def test_park_equipment_leaves_no_open_run(seeded_db):
     conn = seeded_db
-    end = _factory(conn, 9, 20, 600, T0)
+    end = _factory(conn, 9, 10, 600, T0)   # 10:40 (점심 시간대 이전)
     assert _scalar(conn, "SELECT count(*) FROM equipment_status_log WHERE ended_at IS NULL AND status='RUN'") > 0
     assert park_equipment(conn, end) > 0
     rows = conn.execute("SELECT status, reason_id, started_at FROM equipment_status_log WHERE ended_at IS NULL"
@@ -292,6 +292,17 @@ def test_park_equipment_leaves_no_open_run(seeded_db):
     assert len(rows) == 12 and all(r[0] == "IDLE" and r[1] is None and r[2] <= end for r in rows)
     assert _scalar(conn, "SELECT max(ended_at) FROM equipment_status_log") <= end
     assert park_equipment(conn, end) == 0   # 멱등
+    # 재개: 정지 로그를 재개 시각에 닫으면 다음 틱에 바로 RUN/자재대기로 시작 (순간정지처럼 복귀를 기다리지 않음)
+    conn.execute("SAVEPOINT r")
+    resume_equipment(conn, end + timedelta(minutes=30))
+    assert _scalar(conn, "SELECT count(*) FROM equipment_status_log WHERE ended_at IS NULL") == 0
+    step(conn, end + timedelta(minutes=40), random.Random(1), tick_seconds=600)
+    assert _scalar(conn, """SELECT count(DISTINCT equipment_id) FROM equipment_status_log
+                            LEFT JOIN downtime_reason USING (reason_id)
+                            WHERE started_at = %s AND (status = 'RUN' OR name = '자재대기')""",
+                   (end + timedelta(minutes=30),)) == 12
+    assert _scalar(conn, "SELECT count(*) FROM equipment_status_log WHERE ended_at IS NULL AND status = 'RUN'") > 0
+    conn.execute("ROLLBACK TO SAVEPOINT r")
     # 정지 이후(공백)에는 RUN 시간이 더해지지 않는다: 다음 날 교대 행은 있으나 가동률 0
     later = (end + timedelta(days=1)).date()
     n, avail = conn.execute("SELECT count(*), max(availability) FROM v_oee_daily WHERE work_date = %s",

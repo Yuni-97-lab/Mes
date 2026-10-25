@@ -12,6 +12,7 @@ CLI 시계 규칙 (main): 시뮬 시각은 벽시계(현재 시각)를 절대 �
     따라잡은 뒤에는 벽시계가 다음 틱 시각에 닿을 때까지 기다린다(실시간 진행).
   - --once N: 최대 N틱을 기다림 없이 실행하되 벽시계에 닿으면 그 자리에서 끝낸다.
   - 종료(정상 종료, Ctrl+C) 시 진행 중 로그를 마지막 시뮬 시각에 닫고 IDLE 로 남겨, 멈춘 동안 RUN 시간이 쌓이지 않게 한다.
+    다음 실행의 첫 틱에서 그 정지 로그를 닫아(resume_equipment) 설비가 바로 가동을 재개한다.
 트랜잭션: step/ensure_work_orders/replenish/park_equipment 는 커밋하지 않는다. 커밋은 호출자(CLI 루프·테스트) 책임.
 상태는 모두 DB(설비 최신 상태 로그, 진행 중 작업지시)에 있으므로 재시작해도 이어서 동작한다.
 난수는 전부 인자로 받은 random.Random 에서만 뽑아 같은 seed·같은 DB 상태면 같은 결과를 낸다.
@@ -46,7 +47,7 @@ DEFECT_RATE = {
 }
 WIP_MARGIN = 1.15               # 마지막 이전 공정은 계획의 115% 까지 생산(후공정 수율 손실 보전)
 RM_LOW, RM_REFILL = 20000, 500000
-RM_LOT_SIZE = 50000             # 원자재 공급사 LOT 1개 수량 (여러 작업지시가 선입선출로 나눠 씀)
+RM_LOT_SIZE = 10000             # 원자재 공급사 LOT 1개 수량 (여러 작업지시가 선입선출로 나눠 씀)
 
 
 def _p(rate_per_hour, seconds):
@@ -409,6 +410,16 @@ def park_equipment(conn, at: datetime) -> int:
     return len(rows)
 
 
+def resume_equipment(conn, at: datetime) -> int:
+    """시뮬레이터 재개 처리: 정지(사유 없는 IDLE) 로그를 at 에 닫는다. 닫은 로그 수 반환.
+
+    최신 로그가 닫혀 있으면 다음 틱에서 바로 RUN(일감 없으면 자재대기)으로 시작한다.
+    정지 구간 [정지 시각, at] 은 IDLE 로 남아 가동률에 반영된다.
+    """
+    return conn.execute("""UPDATE equipment_status_log SET ended_at = greatest(%s, started_at)
+                           WHERE ended_at IS NULL AND status = 'IDLE' AND reason_id IS NULL""", (at,)).rowcount
+
+
 # ---------------------------------------------------------------- CLI 시계
 def clock_wait(target: datetime, wall: datetime, pause: float) -> float:
     """시뮬 시각 target 의 틱을 실행하기 전에 기다릴 실시간(초).
@@ -470,6 +481,8 @@ def main(argv=None):
                         break
                 else:
                     time.sleep(clock_wait(target, datetime.now(KST), args.tick))
+                if n == 0:   # 재개: 이전 실행의 정지 로그를 닫아 첫 틱부터 바로 가동
+                    resume_equipment(conn, sim)
                 created = ensure_work_orders(conn, 3, rng, now=sim)
                 replenish(conn)
                 rows = step(conn, target, rng, tick_seconds=dt)
