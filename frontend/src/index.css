@@ -155,7 +155,7 @@ a { color: var(--accent); }
 .field select:disabled { background: var(--bg); color: var(--muted); }
 .field select:focus-visible, .field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .form-section { margin: 18px 0 10px; }
-.form-msg { margin: 14px 0 0; }
+.form-msg { margin: 14px 0; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .result-form { max-width: 900px; }
 .result-form > .field { margin-bottom: 14px; }
