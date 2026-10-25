@@ -11,7 +11,7 @@ def translate_db_error(exc: Exception) -> HTTPException | None:
         return HTTPException(409, f"데이터 제약 조건에 위배되어 처리할 수 없습니다 ({name})")
     if isinstance(exc, psycopg.errors.RaiseException) and "over-production" in str(exc):
         return HTTPException(409, "작업지시 수량을 초과합니다")
-    if isinstance(exc, psycopg.errors.UniqueViolation):
-        # 시뮬레이터·다른 사용자와 같은 행(열린 상태 로그, LOT 번호)을 동시에 만들려다 충돌한 경우
+    if isinstance(exc, (psycopg.errors.UniqueViolation, psycopg.errors.DeadlockDetected)):
+        # 시뮬레이터·다른 사용자와 같은 행(열린 상태 로그, LOT 번호)을 동시에 만들려다 충돌한 경우(교착 포함)
         return HTTPException(409, "동시에 다른 입력이 처리되었습니다. 다시 시도하세요")
     return None

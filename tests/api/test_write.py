@@ -323,11 +323,12 @@ def test_down_requires_reason_and_unknown_equipment(client, seeded_db):
     assert _status(client, 1, "MAINT").status_code == 422
 
 
-def test_unique_violation_translates_to_409():
+@pytest.mark.parametrize("exc_name", ["UniqueViolation", "DeadlockDetected"])
+def test_concurrency_errors_translate_to_409(exc_name):
     import psycopg
 
     from backend.app.errors import translate_db_error
-    err = translate_db_error(psycopg.errors.UniqueViolation("duplicate key"))
+    err = translate_db_error(getattr(psycopg.errors, exc_name)("conflict"))
     assert err is not None
     assert (err.status_code, err.detail) == (409, "동시에 다른 입력이 처리되었습니다. 다시 시도하세요")
 

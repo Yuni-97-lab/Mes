@@ -233,11 +233,11 @@ def _fifo(conn, where, params, need):
 
 def _rm_parents(conn, child_id, child_code, need, at, rng):
     """원자재 LOT 선입선출 할당. 잔량이 모자라면 새 공급사 LOT(입고)를 만든다. 번호: <품목코드>-<순번 4자리>."""
+    # 동시성: 시뮬레이터와 수동 입력(API)이 같은 순간 같은 번호를 만들면 늦은 쪽 INSERT 가 유일 제약에서
+    # 먼저 쓴 트랜잭션의 커밋을 기다린 뒤 UniqueViolation 이 된다 -> 시뮬레이터는 그 실적만 건너뛰고(_produce),
+    # API 는 409(다시 시도)로 답한다. 잠금을 틱 끝까지 쥐는 advisory lock 은 트리거의 작업지시 잠금과
+    # 순서가 엇갈려 교착을 만들 수 있어 쓰지 않는다.
     out, short = _fifo(conn, "l.item_id = %s AND l.wo_id IS NULL", (child_id,), need)
-    if short > 0:
-        # 시뮬레이터와 수동 입력(API)이 동시에 공급사 LOT 을 만들면 같은 count+1 번호를 쓰게 되므로
-        # 트랜잭션 단위 advisory lock 으로 입고 LOT 생성을 직렬화한다 (커밋/롤백 시 자동 해제).
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext('mes.rm_lot_no'))")
     while short > 0:
         n = conn.execute("SELECT count(*) FROM lot WHERE item_id=%s AND wo_id IS NULL",
                          (child_id,)).fetchone()[0] + 1
@@ -407,8 +407,9 @@ def _produce(conn, ctx, eq, wo, idx, headroom, start, stop, rng):
         with conn.transaction():
             _insert_result(conn, ctx, wo, eq, idx, qty - defect, defect,
                            _shift_id(ctx["shifts"], start), start, end, rng)
-    except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException, psycopg.errors.UniqueViolation):
-        return 0, stop   # 재고 부족/초과생산/동시 입력과의 번호 충돌: 이 실적만 건너뜀 (다음 틱에 재시도)
+    except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException,
+            psycopg.errors.UniqueViolation, psycopg.errors.DeadlockDetected):
+        return 0, stop   # 재고 부족/초과생산/동시 입력과의 번호 충돌·교착: 이 실적만 건너뜀 (다음 틱에 재시도)
     return qty, end
 
 

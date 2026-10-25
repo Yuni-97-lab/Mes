@@ -370,3 +370,22 @@ def test_rm_lot_numbering_skips_taken_numbers(seeded_db):
     conn.execute("insert into lot (lot_no, item_id, qty, created_at) values ('RM-PCB-0001', %s, 1, %s)", (ic, T0))
     out = _rm_parents(conn, pcb, "RM-PCB", 5, T0, random.Random(1))
     assert [_scalar(conn, "select lot_no from lot where lot_id = %s", (lid,)) for lid, _ in out] == ["RM-PCB-0002"]
+
+
+@pytest.mark.parametrize("exc_name", ["UniqueViolation", "DeadlockDetected"])
+def test_produce_skips_result_on_concurrent_write_conflict(seeded_db, monkeypatch, exc_name):
+    """API 와 동시에 쓰다 번호 충돌·교착이 나도 그 실적만 건너뛰고 틱은 계속된다."""
+    import psycopg.errors
+
+    import simulator.simulate as sim
+    conn = seeded_db
+    rng = random.Random(5)
+    ensure_work_orders(conn, 3, rng, now=T0)
+
+    def boom(*a, **k):
+        raise getattr(psycopg.errors, exc_name)("conflict")
+
+    monkeypatch.setattr(sim, "_insert_result", boom)
+    assert step(conn, T0 + timedelta(minutes=1), rng, tick_seconds=60) == 0
+    monkeypatch.undo()
+    assert step(conn, T0 + timedelta(minutes=2), rng, tick_seconds=60) > 0
