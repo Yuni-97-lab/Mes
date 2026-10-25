@@ -57,9 +57,11 @@ FROM (VALUES
     ('라인1', 'ASM',   'L1-조립기-01'),
     ('라인1', 'FCT',   'L1-FCT-01'),
     ('라인1', 'PACK',  'L1-포장기-01'),
+    ('라인2', 'MATIN', 'L2-자재투입기'),
     ('라인2', 'SMT',   'L2-SMT-01'),
     ('라인2', 'AOI',   'L2-AOI-01'),
     ('라인2', 'ASM',   'L2-조립기-01'),
+    ('라인2', 'FCT',   'L2-FCT-01'),
     ('라인2', 'PACK',  'L2-포장기-01')
 ) AS v(line_name, process_code, name)
 JOIN line l ON l.name = v.line_name
@@ -77,6 +79,10 @@ INSERT INTO downtime_reason (name, is_planned) VALUES
 
 INSERT INTO defect_code (name) VALUES
     ('납땜불량'), ('부품누락'), ('오삽'), ('기능불량'), ('외관불량');
+
+-- FG/SFG 재고 행은 0 으로 미리 생성 (이후 트리거가 UPSERT 없이 UPDATE 가능)
+INSERT INTO inventory (item_id, qty)
+SELECT item_id, 0 FROM item WHERE item_type IN ('FG', 'SFG');
 
 -- 원자재 초기 재고 (충분히 큼), 수불 원장에도 기초 입고로 기록
 INSERT INTO inventory (item_id, qty)

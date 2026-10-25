@@ -33,7 +33,7 @@ def test_seed_counts(seeded_db):
     assert one("select count(*) from item") == 10
     for t, n in (("FG", 3), ("SFG", 2), ("RM", 5)):
         assert one(f"select count(*) from item where item_type='{t}'") == n
-    assert one("select count(*) from equipment") == 10
+    assert one("select count(*) from equipment") == 12
     assert one("select count(*) from line") == 2
     assert one("select count(*) from process") == 6
     missing = one(
@@ -41,3 +41,20 @@ def test_seed_counts(seeded_db):
         " and not exists (select 1 from routing r where r.item_id=i.item_id)"
     )
     assert missing == 0
+
+
+def test_every_line_has_equipment_for_every_process(seeded_db):
+    missing = seeded_db.execute(
+        "select count(*) from line l cross join process p"
+        " where not exists (select 1 from equipment e"
+        " where e.line_id=l.line_id and e.process_id=p.process_id)"
+    ).fetchone()[0]
+    assert missing == 0
+
+
+def test_non_rm_items_have_zero_inventory_rows(seeded_db):
+    n = seeded_db.execute(
+        "select count(*) from inventory inv join item i using (item_id)"
+        " where i.item_type in ('FG','SFG') and inv.qty = 0"
+    ).fetchone()[0]
+    assert n == 5

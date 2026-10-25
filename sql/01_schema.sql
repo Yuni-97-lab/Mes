@@ -32,7 +32,8 @@ CREATE TABLE routing (
     process_id      integer NOT NULL REFERENCES process(process_id),
     seq             integer NOT NULL,
     ideal_cycle_sec numeric NOT NULL CHECK (ideal_cycle_sec > 0),
-    PRIMARY KEY (item_id, process_id)
+    PRIMARY KEY (item_id, process_id),
+    UNIQUE (item_id, seq)
 );
 COMMENT ON TABLE routing IS '품목별 공정 경로와 이상 사이클타임(초/개), 성능률 계산 기준';
 
