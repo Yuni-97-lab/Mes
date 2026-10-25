@@ -162,3 +162,8 @@ CREATE INDEX ix_production_result_wo ON production_result (wo_id);
 CREATE INDEX ix_lot_consumption_parent ON lot_consumption (parent_lot_id);
 CREATE INDEX ix_lot_consumption_child ON lot_consumption (child_lot_id);
 CREATE INDEX ix_equipment_status_log_equipment_started ON equipment_status_log (equipment_id, started_at);
+
+-- ===== 무결성 =====
+-- 설비당 진행 중(ended_at NULL) 상태 로그는 최대 1개
+CREATE UNIQUE INDEX ux_equipment_status_log_one_open ON equipment_status_log (equipment_id)
+    WHERE ended_at IS NULL;

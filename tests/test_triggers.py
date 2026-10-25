@@ -98,6 +98,26 @@ def test_overproduction_rejected(seeded_db):
     _result(conn, wo, "AOI", good=4)  # 정확히 10 은 허용
 
 
+def test_missing_inventory_row_raises_on_consumption(seeded_db):
+    conn = seeded_db
+    wo = _make_wo(conn, "SFG-P01", 100)
+    conn.execute("delete from inventory where item_id = (select item_id from item where item_code='RM-CAP')")
+    with pytest.raises(psycopg.errors.RaiseException, match="재고 행이 없습니다"):
+        with conn.transaction():
+            _result(conn, wo, "MATIN", good=5)
+    assert conn.execute("select count(*) from production_result").fetchone()[0] == 0
+
+
+def test_missing_inventory_row_raises_on_output(seeded_db):
+    conn = seeded_db
+    wo = _make_wo(conn, "SFG-P01", 100)
+    conn.execute("delete from inventory where item_id = (select item_id from item where item_code='SFG-P01')")
+    with pytest.raises(psycopg.errors.RaiseException, match="재고 행이 없습니다"):
+        with conn.transaction():
+            _result(conn, wo, "AOI", good=5)
+    assert conn.execute("select count(*) from inventory_txn where ref_result_id is not null").fetchone()[0] == 0
+
+
 def test_status_transitions_to_running_then_done(seeded_db):
     conn = seeded_db
     wo = _make_wo(conn, "SFG-P01", 10)

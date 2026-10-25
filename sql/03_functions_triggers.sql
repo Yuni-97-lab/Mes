@@ -71,6 +71,9 @@ BEGIN
             UPDATE inventory
             SET qty = qty + (-c.qty_per * (NEW.good_qty + NEW.defect_qty))
             WHERE item_id = c.child_item_id;
+            IF NOT FOUND THEN   -- 재고 행이 없으면 원장과 잔고가 어긋나므로 실적 전체를 거부
+                RAISE EXCEPTION '재고 행이 없습니다: item_id=%', c.child_item_id;
+            END IF;
             INSERT INTO inventory_txn (item_id, delta, ref_result_id)
             VALUES (c.child_item_id, -c.qty_per * (NEW.good_qty + NEW.defect_qty), NEW.result_id);
         END LOOP;
@@ -80,6 +83,9 @@ BEGIN
     IF v_pos IN ('LAST', 'BOTH') THEN
         IF NEW.good_qty > 0 THEN
             UPDATE inventory SET qty = qty + NEW.good_qty WHERE item_id = v_item_id;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION '재고 행이 없습니다: item_id=%', v_item_id;
+            END IF;
             INSERT INTO inventory_txn (item_id, delta, ref_result_id)
             VALUES (v_item_id, NEW.good_qty, NEW.result_id);
         END IF;

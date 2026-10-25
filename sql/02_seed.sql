@@ -65,7 +65,8 @@ FROM (VALUES
     ('라인2', 'PACK',  'L2-포장기-01')
 ) AS v(line_name, process_code, name)
 JOIN line l ON l.name = v.line_name
-JOIN process p ON p.code = v.process_code;
+JOIN process p ON p.code = v.process_code
+ORDER BY l.line_id, p.seq;   -- equipment_id 가 라인 → 공정 순서가 되도록
 
 INSERT INTO shift (name, start_time, end_time) VALUES
     ('주간', '08:00', '20:00'),

@@ -52,6 +52,27 @@ def test_every_line_has_equipment_for_every_process(seeded_db):
     assert missing == 0
 
 
+def test_equipment_ids_follow_line_then_process_seq(seeded_db):
+    rows = seeded_db.execute(
+        "select e.equipment_id, l.name, p.seq from equipment e"
+        " join line l using (line_id) join process p using (process_id) order by e.equipment_id"
+    ).fetchall()
+    assert [(r[1], r[2]) for r in rows] == sorted((r[1], r[2]) for r in rows)
+
+
+def test_second_open_status_log_rejected(seeded_db):
+    conn = seeded_db
+    eid = conn.execute("select equipment_id from equipment where name = 'L1-SMT-01'").fetchone()[0]
+    ins = "insert into equipment_status_log(equipment_id, status, started_at, ended_at) values (%s, %s, %s, %s)"
+    conn.execute(ins, (eid, "RUN", "2026-03-10 08:00+09", "2026-03-10 09:00+09"))   # 닫힌 로그는 여러 개 가능
+    conn.execute(ins, (eid, "IDLE", "2026-03-10 09:00+09", None))
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with conn.transaction():
+            conn.execute(ins, (eid, "RUN", "2026-03-10 10:00+09", None))
+    other = conn.execute("select equipment_id from equipment where name = 'L2-SMT-01'").fetchone()[0]
+    conn.execute(ins, (other, "RUN", "2026-03-10 10:00+09", None))   # 다른 설비는 별개
+
+
 def test_non_rm_items_have_zero_inventory_rows(seeded_db):
     n = seeded_db.execute(
         "select count(*) from inventory inv join item i using (item_id)"

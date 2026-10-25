@@ -66,7 +66,6 @@ def test_stock_exhaustion_does_not_crash(seeded_db):
 
 def test_results_never_exceed_planned_and_lots_linked(seeded_db):
     conn = seeded_db
-    conn.execute("UPDATE work_order SET planned_qty = planned_qty")  # no-op, 시드엔 작업지시 없음
     rng = random.Random(5)
     ensure_work_orders(conn, 3, rng)
     conn.execute("UPDATE work_order SET planned_qty = 30")  # 빨리 완료되도록 작게
