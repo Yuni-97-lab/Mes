@@ -48,7 +48,7 @@ def render_kpis(kpi: dict) -> None:
 def _bar(df: pd.DataFrame, x: str, x_title: str, y_title: str) -> alt.Chart:
     """막대 차트. x 축은 SQL 이 정한 행 순서(라인 → 공정 순)를 그대로 쓴다 (알파벳 정렬 방지)."""
     return (alt.Chart(df).mark_bar(color=BAR_COLOR)
-            .encode(x=alt.X(f"{x}:N", sort=None, title=x_title, axis=alt.Axis(labelAngle=-45)),
+            .encode(x=alt.X(f"{x}:N", sort=None, title=x_title, axis=alt.Axis(labelAngle=-45, labelOverlap=False)),
                     y=alt.Y("v:Q", title=y_title),
                     tooltip=[alt.Tooltip(f"{x}:N", title=x_title),
                              alt.Tooltip("v:Q", title=y_title, format=".1f")]))

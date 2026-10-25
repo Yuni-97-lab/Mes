@@ -33,7 +33,7 @@ flowchart LR
 
 ![MES 대시보드](docs/screenshots/dashboard.png)
 
-시뮬레이터(`--once 300`, 속도 600배)로 채운 뒤 캡처한 실제 화면입니다(가상 데이터). 설비 상태, 작업지시 진행률, 공정별 불량률, 설비별 OEE 와 상단 KPI 카드가 보입니다. 화면 하단에 LOT 추적 입력란이 더 있습니다.
+시뮬레이터로 약 50시간(`--once 300`, 틱 10분)을 채운 뒤 연속 모드(`--speed 60`)를 켜둔 상태에서 캡처한 실제 화면입니다(가상 데이터). 상단 KPI 카드(최근 2교대 평균 OEE, 전체 불량률, 가동 설비 수), 설비 상태(라인 → 공정 순), 작업지시 진행률(진행 중 우선), 공정별 불량률, 설비별 OEE 가 보입니다. 화면 하단에 LOT 추적 입력란이 더 있습니다.
 
 ## 프로젝트 구조
 
@@ -48,7 +48,7 @@ flowchart LR
 ├── dashboard/                     # Streamlit 앱(app.py)과 조회 함수(queries.py)
 ├── mes/db.py                      # DATABASE_URL 연결 헬퍼
 ├── scripts/                       # init_db.py, create_dbs.sql, docker_init_test_db.sh
-├── tests/                         # pytest 44개 (mes_test DB 사용)
+├── tests/                         # pytest 66개 (mes_test DB 사용)
 ├── docs/                          # erd.md, performance.md, screenshots/
 ├── docker-compose.yml             # PostgreSQL 16 (Docker 경로)
 ├── requirements.txt
@@ -75,6 +75,8 @@ docker compose up -d
 ```
 `docker-compose.yml` 이 `mes` 사용자/DB(비밀번호 `mes`)를 만들고, 최초 기동 시 `scripts/docker_init_test_db.sh` 가 `mes_test` DB 를 추가합니다.
 
+**시간대**: 교대(주간 08–20, 야간 20–08)는 한국 시간 기준입니다. `postgres` Docker 이미지의 기본 시간대는 UTC 이므로 `docker-compose.yml` 에서 `TZ`/`PGTZ`/`timezone` 을 `Asia/Seoul` 로 고정했고, `scripts/create_dbs.sql`·Docker 초기화 스크립트도 두 DB 의 기본 시간대를 `Asia/Seoul` 로 설정합니다. 무엇보다 `mes/db.py` 의 `connect()` 가 세션마다 `TimeZone = Asia/Seoul` 을 지정하므로, 서버 설정과 관계없이 시뮬레이터의 교대 배정과 뷰의 교대 창 계산이 같은 시간대를 씁니다. 시뮬레이터도 시각을 KST(UTC+9)로 다룹니다.
+
 ### 2. Python 패키지
 ```powershell
 pip install -r requirements.txt
@@ -96,9 +98,9 @@ export DATABASE_URL=postgresql://mes:mes@localhost:5432/mes
 # (1) 스키마·시드 적용. --reset 은 public 스키마를 DROP 후 다시 만든다 (개발 DB 데이터 삭제)
 python scripts/init_db.py --reset
 
-# (2) 데이터 채우기: 빠르게 300틱(속도 600배)을 한 번에 채우고 종료
+# (2) 데이터 채우기: 지금까지의 약 50시간(10분 틱 300개)을 한 번에 채우고 종료
 python -m simulator.simulate --speed 600 --seed 42 --once 300
-#     또는 실시간에 가깝게 계속 적재 (Ctrl+C 로 중단, 실 1초당 시뮬 1분)
+#     또는 계속 적재 (Ctrl+C 로 중단): 현재 교대 시작(또는 DB 마지막 시각)부터 60배속으로 따라잡은 뒤 실시간 진행
 python -m simulator.simulate --speed 60 --seed 42
 
 # (3) 대시보드 (시뮬레이터를 켜둔 채 다른 터미널에서)
@@ -109,15 +111,25 @@ pytest
 ```
 `python` 이 동작하지 않는 환경(예: Windows 스토어 스텁)에서는 설치된 Python 의 전체 경로로 실행합니다.
 
-시뮬레이터 옵션: `--speed`(시뮬 시간/실시간 배율, 기본 60), `--seed`, `--once N`(N틱 실행 후 종료), `--tick`(실시간 틱 간격 초, 기본 1). 상태는 모두 DB 에 있어 재시작하면 DB 의 마지막 시각 이후부터 이어서 동작합니다.
+시뮬레이터 옵션: `--speed`(기본 60), `--seed`, `--once N`, `--tick`(기본 1초). 시계 규칙은 다음과 같습니다.
+
+- **시뮬 시각은 현재 시각(벽시계)을 넘지 않습니다.** 미래 시각의 데이터는 만들지 않으므로 대시보드 지표가 실제 시각과 어긋나지 않습니다.
+- 틱 길이 = `--tick x --speed` 시뮬 초 (기본 60초, `--speed 600` 이면 10분).
+- 시작점: 빈 DB 에서 `--once N` 은 "지금 - N틱" 부터 시작해 마지막 틱이 지금이 되고, 연속 모드는 현재 교대 시작 시각부터 채웁니다. DB 에 데이터가 있으면 마지막 시각부터 이어 갑니다.
+- 연속 모드: 현재 시각보다 뒤처져 있는 동안은 실시간 `--tick` 초마다 한 틱씩(= `--speed` 배속) 따라잡고, 따라잡은 뒤에는 실제 시간이 한 틱 길이만큼 흐를 때마다 한 틱을 진행합니다. 즉 `--speed` 는 따라잡는 속도와 틱 길이만 정합니다.
+- `--once N`: 최대 N틱을 기다림 없이 실행하고, 현재 시각에 닿으면 더 일찍 끝냅니다(예: 방금 채운 DB 에서 다시 실행하면 진행할 틱이 없음).
+- 정지: 정상 종료·Ctrl+C 시 진행 중 설비 로그를 마지막 시뮬 시각에 닫고 IDLE 로 남깁니다. 멈춰 있는 동안 RUN 시간이 쌓이지 않습니다(가동률은 정지 시간만큼 내려감). 오래 멈춘 뒤(마지막 시각이 시작점 이전) 재시작하면 마지막 시각에 설비를 정지 처리하고 시작점부터 새로 채웁니다. 프로세스를 강제 종료한 경우에는 `python -m simulator.simulate --once 1 --speed 600` 을 한 번 실행하면 진행할 틱 없이 정지 처리만 하고 끝납니다.
 
 `pytest` 는 `mes_test` DB 만 사용하며(세션 시작 시 그 DB 의 public 스키마를 비움), 개발 DB 는 건드리지 않습니다. 테스트는 `mes` 롤이 `mes_test` 에 접속할 수 있어야 하므로 1단계의 DB 생성이 필요합니다.
 
-LOT 추적을 해보려면 대시보드 화면 하단 "LOT 번호" 칸에 실제 LOT 번호를 넣습니다. 번호 형식은 생산 LOT `WO-<작업지시>-<공정코드>-<순번>`(예: `WO-26-PACK-10`), 원자재 LOT `RM-<품목코드>-WO<작업지시>`(예: `RM-RM-IC-WO1`)입니다. 직접 조회할 수도 있습니다.
+LOT 추적을 해보려면 대시보드 화면 하단 "LOT 번호" 칸에 실제 LOT 번호를 넣습니다. 번호 형식은 생산 LOT `WO-<작업지시>-<공정코드>-<순번>`(예: `WO-2-PACK-1`), 원자재(공급사) LOT `<품목코드>-<순번 4자리>`(예: `RM-IC-0001`)입니다. 직접 조회할 수도 있습니다.
 ```sql
-SELECT * FROM trace_backward('WO-26-PACK-10') ORDER BY depth, lot_no;
+-- 완제품 포장 LOT 의 투입 이력: 기능검사 → 조립 → AOI 를 통과한 반제품 LOT 2종 → SMT → 자재투입 → 원자재 공급사 LOT
+SELECT * FROM trace_backward('WO-2-PACK-1') ORDER BY depth, lot_no;
+-- 원자재 LOT 리콜 범위: 이 공급사 LOT 이 들어간 모든 하위 LOT
+SELECT * FROM trace_forward('RM-IC-0001') ORDER BY depth, lot_no;
 ```
-(LOT 번호는 시뮬레이터 실행마다 달라질 수 있으니 `SELECT lot_no FROM lot LIMIT 10;` 으로 확인하세요.)
+위 예시는 README 작성 시 데모 실행(`--seed 42 --once 300`)에서 확인한 값입니다. `trace_backward('WO-2-PACK-1')` 은 15행(depth 1–6)을 반환했고, depth 3 의 반제품 LOT 는 모두 AOI 공정 LOT(`WO-1-AOI-1`, `WO-3-AOI-1`)였습니다. `trace_forward('RM-IC-0001')` 은 생산 LOT 약 2,950개 중 1,088개를 반환했습니다(공급사 LOT 1개가 쓰인 기간의 하위 LOT 만). 시작 시각이 실행 시점에 따라 달라 LOT 번호와 행 수는 달라질 수 있으니 `SELECT lot_no FROM lot LIMIT 10;` 으로 확인하세요.
 
 ## SQL 하이라이트
 
@@ -156,18 +168,20 @@ select distinct on (l.lot_id) l.lot_no, i.item_code, l.supplier_lot_no, w.depth
 ```
 
 ### 3. OEE 뷰 — [`sql/04_views.sql`](sql/04_views.sql)
-`v_oee_daily` 는 설비 x 교대 x work_date 단위로 OEE = 가동률 x 성능률 x 품질률 을 계산합니다. 야간조의 자정 이후 구간은 교대가 시작된 전날 work_date 에 귀속시키고, 계획 비가동(점심·점검)은 계획시간에서 빼며, 교대 경계를 걸친 로그는 교대별로 잘라 계산합니다. 핵심 비율 계산부는 다음과 같습니다.
+`v_oee_daily` 는 설비 x 교대 x work_date 단위로 OEE = 가동률 x 성능률 x 품질률 을 계산합니다. 야간조의 자정 이후 구간은 교대가 시작된 전날 work_date 에 귀속시키고, 계획 비가동(점심·점검)은 계획시간에서 빼며, 교대 경계를 걸친 로그는 교대별로 잘라 계산합니다. 진행 중인 교대는 교대 창 끝 대신 `now()` 까지만 계획시간으로 보므로(유효 창 `LEAST(교대 끝, now())`), 교대 초반에도 가동률이 낮게 왜곡되지 않습니다. 생산수량이 0 인 행의 품질률은 정의되지 않으므로 NULL 입니다. 핵심 비율 계산부는 다음과 같습니다.
 
 ```sql
-SELECT e.equipment_id, e.name AS equipment_name, a.shift_name, a.work_date,
+SELECT e.equipment_id, e.name AS equipment_name, a.shift_name, a.work_date, a.wstart, a.wend,
        LEAST(1, COALESCE(a.run_sec / NULLIF(a.shift_sec - a.planned_down_sec, 0), 0)) AS availability,
        COALESCE(r.ideal_sec / NULLIF(a.run_sec, 0), 0)                      AS performance,
-       COALESCE(r.good_qty / NULLIF(r.good_qty + r.defect_qty, 0), 0)       AS quality
+       r.good_qty / NULLIF(r.good_qty + r.defect_qty, 0)                    AS quality
 FROM agg a
 JOIN equipment e ON e.equipment_id = a.equipment_id
 LEFT JOIN res r ON r.equipment_id = a.equipment_id AND r.shift_id = a.shift_id
                AND r.work_date = a.work_date
 ```
+
+대시보드의 "평균 OEE" 카드와 설비별 OEE 차트는 데이터가 있는 **최근 2개 교대 창(24시간)** 의 설비 x 교대 행 평균입니다(`dashboard/queries.py`, SQL 의 WHERE 로 범위 지정). 시뮬레이션 시작 무렵 일부만 덮인 첫 교대처럼 오래된 행이 평균을 왜곡하지 않게 하기 위해서입니다.
 
 같은 파일에 불량률·FTY(`v_defect_rate`), 작업지시 진행률(`v_wo_progress`), 설비 현재 상태(`v_equipment_current`)도 있습니다.
 
@@ -177,16 +191,17 @@ KPI 뷰에 실적 100,000행을 적재해 측정했습니다. `v_oee_daily` 가 
 
 ## 테스트
 
-`pytest` 44개 (`tests/`): 스키마·제약, 트리거(backflush, 초과생산, 재고 부족 롤백, 상태 전이), LOT 추적(순환 포함), 뷰(고정 시나리오, 야간조 귀속, 교대 경계 분할, 0 나눔), 시뮬레이터(seed 재현성, 재시작 멱등성, 재고 고갈), 대시보드 조회 함수.
+`pytest` 66개 (`tests/`): 스키마·제약(설비당 진행 중 로그 1개, 설비 ID 순서), 세션 시간대, 트리거(backflush, 초과생산, 재고 부족 롤백, 재고 행 없음 거부, 상태 전이), LOT 추적(순환 포함), 뷰(고정 시나리오, 야간조 귀속, 교대 경계 분할, 진행 중 교대의 now() 캡, 0 나눔·품질률 NULL), 시뮬레이터(seed 재현성, 라인별 작업지시, 일감 없을 때 자재대기, 완전한 교대의 성능률·OEE 범위, 검사 공정 불량 집중, LOT 계보가 라우팅을 따르는지, 교대 경계 실적 분할, 시계 규칙, 정지 처리, CLI 가 미래 시각을 쓰지 않는지), 대시보드 조회 함수(정렬, 최근 2교대 범위).
 
 ## 한계와 비목표
 
 - **가상 데이터 기반**: 실제 PLC/OPC-UA 등 설비 연동은 없고 시뮬레이터가 대신합니다. 인증/권한, 멀티 사이트, 클라우드 배포, APS(스케줄링), ERP 연동은 범위 밖입니다.
 - **입력 UI 없음**: 작업지시 등록·실적 입력 화면은 없습니다. 대시보드는 조회 전용입니다(LOT 추적 입력란 제외).
 - **재고 규칙 단순화**: 소요 자재는 첫 공정에서 BOM 직계 자식만 차감하고, 결과물은 마지막 공정에서만 가산합니다. 단일 창고, 품목당 1행입니다.
-- **LOT 계보는 휴리스틱**: 시뮬레이터가 "같은 작업지시의 직전 공정 최신 LOT" 를 부모로 연결하므로 실제 물리적 투입 관계를 정밀하게 반영하지 않습니다. 개별 시리얼 번호 추적은 제외했습니다.
+- **LOT 계보는 시뮬레이터 규칙**: 시뮬레이터가 실제 투입량을 선입선출(FIFO)로 LOT 에 할당해 계보를 만듭니다. 완제품 조립은 반제품 라우팅의 마지막 공정(AOI)을 통과한 LOT 만, 후공정은 같은 작업지시의 바로 앞 공정 LOT 만, 첫 공정은 원자재 공급사 LOT(1만 개 단위, 여러 작업지시가 나눠 씀)를 투입합니다. 실제 현장의 바코드 스캔 같은 투입 실적이 아니라 규칙으로 만든 계보이며, 개별 시리얼 번호 추적은 제외했습니다. 원자재 LOT 는 계보용이며 재고 수량(`inventory`)과는 별도로 관리합니다.
 - **FTY 는 공장 전체 단일 값**: 6개 공정의 `양품/투입` 곱이며 제품별 실제 경로 수율이 아닙니다.
 - **OEE 성능률은 캡이 없습니다**: 시뮬레이터 데이터에서는 이상 사이클 대비 속도를 75–98%로 뽑지만, 실제 데이터에서 100%를 넘으면 그대로 나옵니다. 가동률만 최대 1로 캡합니다.
-- **OEE 수치는 데모용**: `--once` 로 짧은 구간에 몰아 채우면 교대 길이(12시간) 대비 데이터가 적어 OEE 값이 낮게 나옵니다. 값 자체에 의미를 두지 마세요. (가동률 분모는 항상 교대 전체 길이인데 시뮬레이션 구간은 교대 일부만 덮을 수 있기 때문입니다.)
+- **OEE 수치는 시뮬레이터 모델의 결과**: 데모 실행(`--once 300`)의 최근 2교대 평균 OEE 는 약 60%(가동률 약 72%, 성능률 약 86%, 품질률 약 97%)입니다. 가동률 손실은 대부분 자재대기(전공정 재공·반제품 재고·작업지시 교체 대기)이고 나머지는 고장·순간정지입니다. 시뮬레이터는 일감이 없는 설비를 RUN 이 아니라 IDLE(자재대기, 비계획)로 기록하고, 라인마다 SFG·FG 작업지시를 하나 이상 유지하며, 공정별 이상 사이클을 비슷하게 맞춰 두었습니다(`sql/02_seed.sql`). 시뮬레이션이 시작된 첫 교대는 시작 시각 이전 구간에 기록이 없어 가동률이 매우 낮게 나오므로 KPI 카드와 차트는 최근 2교대만 집계합니다(뷰 `v_oee_daily` 자체에는 모든 행이 있습니다).
+- **시뮬레이터를 멈춘 동안**: 진행 중인 교대의 계획시간은 `now()` 까지 늘어나므로, 시뮬레이터를 멈춘 채 시간이 지나면 현재 교대의 가동률이 그만큼 내려갑니다(정지 처리된 IDLE 시간). 실제 공장에서 설비가 멈춘 것과 같은 해석입니다.
 - **Docker 경로 미검증**: 작성자 환경에 Docker 가 없어 `docker-compose.yml` 은 직접 실행해 보지 못했습니다.
 - 성능 측정은 단일 로컬 인스턴스의 수치입니다.
