@@ -165,3 +165,26 @@ a { color: var(--accent); }
 .lot-scroll { max-height: 420px; overflow: auto; }
 @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .defect-row { grid-template-columns: 1fr 1fr; } }
 .status-done { color: #475467; background: #eaecf0; }
+
+/* 설비 제어 / LOT 추적 */
+.eq-ctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.eq-ctl select { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.eq-ctl select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn-sm { padding: 5px 12px; font-size: 13px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row-selected { background: #eef4ff; }
+.trace-form { margin-bottom: 16px; }
+.trace-row { display: flex; gap: 12px; align-items: end; }
+.trace-input { flex: 1; max-width: 480px; }
+.trace-dir { border: none; padding: 0; margin: 14px 0 0; display: flex; gap: 20px; flex-wrap: wrap; }
+.trace-dir legend { padding: 0; margin-bottom: 6px; }
+.radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.trace-help { font-size: 12px; margin: 12px 0 0; }
+.lot-tree { list-style: none; margin: 0; padding: 0; }
+.lot-node { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-bottom: 1px solid var(--grid); }
+.lot-branch { color: var(--muted); width: 14px; }
+.lot-link { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.lot-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lot-supplier { font-size: 12px; background: var(--grid); border-radius: 99px; padding: 2px 10px; }
+.lot-depth { margin-left: auto; font-size: 12px; }

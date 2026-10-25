@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from './client'
 import type {
   DefectRow, Equipment, EquipmentDetail, Kpi, Lookups, OeeEquipment, ResultCreated, ResultIn,
+  StatusChangeIn, StatusLogRow, TraceDirection, TraceRow,
   WoOptions, WorkOrder, WorkOrderCreated, WorkOrderDetail, WorkOrderIn,
 } from './types'
 
@@ -89,3 +90,29 @@ export const useCreateResult = () => {
       ),
   })
 }
+
+export const useStatusLog = (id: number | null) =>
+  useQuery({
+    queryKey: ['status-log', id],
+    queryFn: () => apiGet<StatusLogRow[]>(`/api/equipment/${id}/status-log`),
+    enabled: id != null,
+    refetchInterval: POLL_MS,
+  })
+
+export const useChangeStatus = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: number } & StatusChangeIn) =>
+      apiPost<Equipment>(`/api/equipment/${id}/status`, body),
+    onSuccess: () =>
+      Promise.all(['equipment', 'status-log', 'kpi'].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
+export const useLotTrace = (lotNo: string, direction: TraceDirection) =>
+  useQuery({
+    queryKey: ['lot-trace', lotNo, direction],
+    queryFn: () =>
+      apiGet<TraceRow[]>(`/api/lots/${encodeURIComponent(lotNo)}/trace?direction=${direction}`),
+    enabled: lotNo !== '',
+  })

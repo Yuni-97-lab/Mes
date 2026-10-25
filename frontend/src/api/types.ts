@@ -112,3 +112,9 @@ export interface ResultIn {
   defects: DefectIn[]
 }
 export interface ResultCreated { result_id: number; lot_no: string }
+
+export interface StatusLogRow { status: string; reason: string | null; started_at: string; ended_at: string | null }
+export interface StatusChangeIn { status: 'RUN' | 'IDLE' | 'DOWN'; reason_id: number | null }
+
+export type TraceDirection = 'forward' | 'backward'
+export interface TraceRow { lot_no: string; item_code: string; depth: number; supplier_lot_no?: string | null }
