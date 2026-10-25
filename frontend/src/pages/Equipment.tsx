@@ -21,10 +21,19 @@ function EquipmentRow({
 }) {
   const lookups = useLookups()
   const change = useChangeStatus()
-  const [status, setStatus] = useState<StatusChangeIn['status']>(
-    eq.status === 'RUN' || eq.status === 'DOWN' ? eq.status : 'IDLE',
-  )
-  const [reasonId, setReasonId] = useState('')
+  const serverStatus: StatusChangeIn['status'] = eq.status === 'RUN' || eq.status === 'DOWN' ? eq.status : 'IDLE'
+  const serverReasonId = String(lookups.data?.reasons.find((r) => r.name === eq.reason)?.reason_id ?? '')
+  const [status, setStatus] = useState<StatusChangeIn['status']>(serverStatus)
+  const [reasonId, setReasonId] = useState(serverReasonId)
+  // 서버 상태(시뮬레이터·다른 사용자의 변경 포함)가 바뀌면 선택값을 현재 상태로 다시 맞춘다.
+  // (렌더 중 이전 값과 비교해 갱신하는 React 권장 패턴. key 로 행을 다시 만들면 진행 중 변경의 완료 안내가 사라진다)
+  const serverKey = `${serverStatus}:${serverReasonId}`
+  const [syncedKey, setSyncedKey] = useState(serverKey)
+  if (syncedKey !== serverKey) {
+    setSyncedKey(serverKey)
+    setStatus(serverStatus)
+    setReasonId(serverReasonId)
+  }
   const needsReason = status === 'DOWN'
   const blocked = change.isPending || (needsReason && reasonId === '')
 

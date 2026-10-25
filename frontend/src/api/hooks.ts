@@ -44,7 +44,7 @@ export const useLookups = () =>
   useQuery({
     queryKey: ['lookups'],
     queryFn: () => apiGet<Lookups>('/api/lookups'),
-    refetchInterval: POLL_MS,
+    staleTime: Infinity,   // 품목·라인·공정·사유·불량코드는 마스터 데이터: 주기 갱신 불필요
   })
 
 export const useEquipmentDetail = (id: number | null) =>
