@@ -78,7 +78,7 @@ agg AS (
 ),
 ratios AS (
     SELECT e.equipment_id, e.name AS equipment_name, a.shift_name, a.work_date,
-           COALESCE(a.run_sec / NULLIF(a.shift_sec - a.planned_down_sec, 0), 0) AS availability,
+           LEAST(1, COALESCE(a.run_sec / NULLIF(a.shift_sec - a.planned_down_sec, 0), 0)) AS availability,
            COALESCE(r.ideal_sec / NULLIF(a.run_sec, 0), 0)                      AS performance,
            COALESCE(r.good_qty / NULLIF(r.good_qty + r.defect_qty, 0), 0)       AS quality
     FROM agg a
@@ -124,7 +124,7 @@ per AS (
 ),
 fty AS (
     SELECT CASE WHEN bool_or(good_qty = 0) THEN 0
-                ELSE COALESCE(exp(sum(ln(good_qty / input_qty))), 1) END AS fty
+                ELSE COALESCE(exp(sum(ln(NULLIF(good_qty, 0) / input_qty))), 1) END AS fty
     FROM per WHERE input_qty > 0
 )
 SELECT per.process_code, per.input_qty, per.defect_qty, per.scrap_qty, per.rework_qty,
@@ -140,7 +140,7 @@ ORDER BY per.seq;
 CREATE VIEW v_wo_progress AS
 SELECT wo.wo_id, i.item_code, wo.planned_qty,
        COALESCE(g.good_qty, 0) AS good_qty,
-       round(100 * COALESCE(g.good_qty, 0) / wo.planned_qty, 1) AS progress_pct,
+       round(100 * COALESCE(g.good_qty, 0) / NULLIF(wo.planned_qty, 0), 1) AS progress_pct,
        wo.status, wo.due_date
 FROM work_order wo
 JOIN item i ON i.item_id = wo.item_id

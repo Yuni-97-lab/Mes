@@ -147,3 +147,60 @@ def test_equipment_current(seeded_db):
     assert len(cur) == 12
     assert cur["L1-SMT-01"][1] == "DOWN"
     assert cur["L2-SMT-01"][1] == "IDLE" and cur["L2-SMT-01"][2] is None
+
+
+def _avail(conn, equipment, shift, work_date):
+    row = conn.execute(
+        "select availability from v_oee_daily"
+        " where equipment_name = %s and shift_name = %s and work_date = %s",
+        (equipment, shift, work_date),
+    ).fetchone()
+    return None if row is None else float(row[0])
+
+
+def test_defect_rate_zero_good_does_not_raise(seeded_db):
+    conn = seeded_db
+    wo = _wo(conn, "SFG-P01", 200)
+    _result(conn, wo, "SMT", "주간", "2026-03-10 10:00", good=0, defect=5)
+    row = conn.execute(
+        "select input_qty, defect_rate, fty from v_defect_rate where process_code = 'SMT'"
+    ).fetchone()
+    assert [float(x) for x in row] == [5, 1, 0]
+    assert conn.execute("select count(*) from v_defect_rate").fetchone()[0] == 6
+
+
+def test_run_log_spanning_shift_boundary_splits_2h_6h(seeded_db):
+    conn = seeded_db
+    _log(conn, "L1-AOI-01", "RUN", "2026-03-10 18:00", "2026-03-11 02:00")
+    assert _avail(conn, "L1-AOI-01", "주간", "2026-03-10") == pytest.approx(2 / 12, abs=1e-4)
+    assert _avail(conn, "L1-AOI-01", "야간", "2026-03-10") == pytest.approx(6 / 12, abs=1e-4)
+
+
+def test_planned_downtime_straddling_boundary_is_clipped_per_shift(seeded_db):
+    conn = seeded_db
+    eq = "L1-AOI-01"
+    _log(conn, eq, "RUN", "2026-03-10 08:00", "2026-03-10 17:00")                  # 주간 9h
+    _log(conn, eq, "DOWN", "2026-03-10 19:00", "2026-03-10 21:00", "정기점검")     # 계획 2h: 주간 1h + 야간 1h
+    _log(conn, eq, "RUN", "2026-03-10 21:00", "2026-03-11 05:00")                  # 야간 8h
+    assert _avail(conn, eq, "주간", "2026-03-10") == pytest.approx(9 / 11, abs=1e-4)
+    assert _avail(conn, eq, "야간", "2026-03-10") == pytest.approx(8 / 11, abs=1e-4)
+
+
+def test_open_ended_log_is_bounded_by_window_and_now(seeded_db):
+    conn = seeded_db
+    eq = "L1-AOI-01"
+    # 과거에 시작해 아직 진행 중인 로그: 이미 지난 창은 창 길이까지만 계산(=1), 예외 없음
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at)"
+        " select equipment_id, 'RUN', '2026-03-10 08:00'::timestamptz from equipment where name = %s", (eq,))
+    # 방금 시작한 진행 중 로그(현재 교대 안): now() 를 넘지 않으므로 0~1
+    _log(conn, "L2-AOI-01", "RUN", "2026-03-10 08:00", "2026-03-10 09:00")
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at)"
+        " select equipment_id, 'RUN', now() - interval '1 hour' from equipment where name = 'L2-SMT-01'")
+    assert _avail(conn, eq, "주간", "2026-03-10") == pytest.approx(1.0, abs=1e-6)
+    assert _avail(conn, eq, "야간", "2026-03-10") == pytest.approx(1.0, abs=1e-6)
+    rows = conn.execute(
+        "select availability from v_oee_daily where equipment_name in (%s, 'L2-SMT-01')", (eq,)
+    ).fetchall()
+    assert rows and all(0 <= float(r[0]) <= 1 for r in rows)
