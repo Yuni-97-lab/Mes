@@ -5,8 +5,7 @@ Decimal -> float 변환만 한다.
 """
 import pandas as pd
 
-OEE_COLS = ["equipment_id", "equipment_name", "shift_name", "work_date",
-            "availability", "performance", "quality", "oee"]
+OEE_COLS = ["equipment_name", "oee", "availability", "performance", "quality"]
 WO_COLS = ["wo_id", "item_code", "planned_qty", "good_qty", "progress_pct", "status", "due_date"]
 DEFECT_COLS = ["process_code", "input_qty", "defect_qty", "scrap_qty", "rework_qty",
                "defect_rate", "fty"]
@@ -28,10 +27,12 @@ def _frame(conn, sql, columns, params=None, floats=()):
 
 
 def oee_by_equipment(conn) -> pd.DataFrame:
+    """설비별 평균 OEE/가용성/성능/품질 (집계는 SQL 에서)."""
     return _frame(
         conn,
-        f"select {', '.join(OEE_COLS)} from v_oee_daily order by work_date, equipment_id, shift_name",
-        OEE_COLS, floats=["availability", "performance", "quality", "oee"])
+        "select equipment_name, avg(oee), avg(availability), avg(performance), avg(quality)"
+        " from v_oee_daily group by equipment_name order by equipment_name",
+        OEE_COLS, floats=OEE_COLS[1:])
 
 
 def wo_progress(conn) -> pd.DataFrame:

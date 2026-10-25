@@ -36,9 +36,10 @@ def has_data(d: dict) -> bool:
 
 
 def render_kpis(kpi: dict) -> None:
+    # 전체 불량률은 모든 공정의 불량/투입 합으로 구한 공정 수준 풀링 비율이다.
     c1, c2, c3 = st.columns(3)
     c1.metric("평균 OEE", "-" if kpi["avg_oee"] is None else f"{kpi['avg_oee']:.1%}")
-    c2.metric("전체 불량률", "-" if kpi["defect_rate"] is None else f"{kpi['defect_rate']:.2%}")
+    c2.metric("전체 불량률 (공정 합산)", "-" if kpi["defect_rate"] is None else f"{kpi['defect_rate']:.2%}")
     c3.metric("가동 설비 수", f"{kpi['running']} / {kpi['total']}")
 
 
@@ -69,6 +70,9 @@ def render_work_orders(df: pd.DataFrame) -> None:
 
 def render_defects(df: pd.DataFrame) -> None:
     st.subheader("공정별 불량률")
+    if df.empty:
+        st.caption("불량률 데이터가 없습니다.")
+        return
     chart = (df.set_index("process_code")[["defect_rate"]] * 100).rename(columns={"defect_rate": "불량률(%)"})
     st.bar_chart(chart, color=BAR_COLOR)
 
@@ -78,7 +82,7 @@ def render_oee(df: pd.DataFrame) -> None:
     if df.empty:
         st.caption("OEE 데이터가 없습니다.")
         return
-    chart = (df.groupby("equipment_name")[["oee"]].mean() * 100).rename(columns={"oee": "OEE(%)"})
+    chart = (df.set_index("equipment_name")[["oee"]] * 100).rename(columns={"oee": "OEE(%)"})
     st.bar_chart(chart, color=BAR_COLOR)
 
 

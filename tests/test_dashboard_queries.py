@@ -5,8 +5,7 @@ from dashboard import queries
 from tests.test_lot_trace import _chain
 
 COLUMNS = {
-    "oee_by_equipment": ["equipment_id", "equipment_name", "shift_name", "work_date",
-                         "availability", "performance", "quality", "oee"],
+    "oee_by_equipment": ["equipment_name", "oee", "availability", "performance", "quality"],
     "wo_progress": ["wo_id", "item_code", "planned_qty", "good_qty", "progress_pct",
                     "status", "due_date"],
     "defect_by_process": ["process_code", "input_qty", "defect_qty", "scrap_qty",
@@ -30,6 +29,13 @@ def test_queries_return_dataframes_on_empty_db(seeded_db, fn):
 def test_numeric_columns_are_float(seeded_db):
     df = queries.defect_by_process(seeded_db)
     assert df["defect_rate"].dtype == float
+
+
+def test_lot_trace_unknown_lot_is_empty(seeded_db):
+    for d, cols in (("forward", ["lot_no", "item_code", "depth"]),
+                    ("backward", ["lot_no", "item_code", "supplier_lot_no", "depth"])):
+        df = queries.lot_trace(seeded_db, "NOPE", d)
+        assert df.empty and list(df.columns) == cols
 
 
 def test_lot_trace_rejects_bad_direction(seeded_db):
