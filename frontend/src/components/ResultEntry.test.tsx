@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { ResultEntry } from '../pages/ResultEntry'
 
 const WOS = [
@@ -15,6 +15,11 @@ const OPTIONS = {
     { process_id: 20, code: 'AOI', name: '광학검사', seq: 2, equipment: [{ equipment_id: 200, name: 'AOI-1' }, { equipment_id: 201, name: 'AOI-2' }] },
   ],
 }
+const OPTIONS3 = {
+  wo_id: 3,
+  status: 'RUNNING',
+  processes: [{ process_id: 30, code: 'FCT', name: '기능검사', seq: 3, equipment: [{ equipment_id: 300, name: 'FCT-1' }] }],
+}
 const LOOKUPS = {
   items: [], lines: [], processes: [], reasons: [],
   defect_codes: [{ defect_id: 5, name: '납땜 불량' }, { defect_id: 6, name: '부품 누락' }],
@@ -24,12 +29,16 @@ type Handler = (init?: RequestInit) => Response | Promise<Response>
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-function mockApi(post: Handler = () => json({ result_id: 1, lot_no: 'WO-1-SMT-M1' }, 201)) {
+function mockApi(
+  post: Handler = () => json({ result_id: 1, lot_no: 'WO-1-SMT-M1' }, 201),
+  options: () => Response = () => json(OPTIONS),
+) {
   const fn = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url).split('?')[0]
     if (init?.method === 'POST' && path === '/api/results') return post(init)
     if (path === '/api/work-orders') return json(WOS)
-    if (path === '/api/work-orders/1/options') return json(OPTIONS)
+    if (path === '/api/work-orders/1/options') return options()
+    if (path === '/api/work-orders/3/options') return json(OPTIONS3)
     if (path === '/api/work-orders/2/options') return json({ wo_id: 2, status: 'DONE', processes: [] })
     if (path === '/api/lookups') return json(LOOKUPS)
     return json({}, 404)
@@ -102,9 +111,11 @@ describe('ResultEntry', () => {
     renderPage('?wo=1')
     await fillForm()
     const btn = screen.getByRole('button', { name: '실적 등록' })
-    fireEvent.click(btn)
+    const form = btn.closest('form')!
+    fireEvent.submit(form)
     await waitFor(() => expect(btn).toBeDisabled())
-    fireEvent.click(btn)
+    fireEvent.submit(form)
+    fireEvent.submit(form)
     expect(posts(fn)).toHaveLength(1)
     release(json({ result_id: 1, lot_no: 'WO-1-SMT-M1' }, 201))
     await waitFor(() => expect(btn).toBeEnabled())
@@ -157,5 +168,66 @@ describe('ResultEntry', () => {
     renderPage('?wo=2')
     expect(await screen.findByText(/완료된 작업지시/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '실적 등록' })).not.toBeInTheDocument()
+  })
+
+  it('마지막 실적으로 작업지시가 DONE 이 되어도 LOT 안내가 남는다', async () => {
+    let done = false
+    mockApi(
+      () => { done = true; return json({ result_id: 1, lot_no: 'WO-1-PACK-M1' }, 201) },
+      () => json(done ? { ...OPTIONS, status: 'DONE' } : OPTIONS),
+    )
+    renderPage('?wo=1')
+    await fillForm()
+    fireEvent.click(screen.getByRole('button', { name: '실적 등록' }))
+    expect(await screen.findByText(/완료된 작업지시/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'WO-1-PACK-M1' })).toBeInTheDocument()
+  })
+
+  it('wo 검색 파라미터가 바뀌면 공정·설비 선택이 초기화된다', async () => {
+    mockApi()
+    let go: (to: string) => void = () => {}
+    function Nav() { const n = useNavigate(); go = n; return null }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/results/new?wo=1']}>
+          <Nav />
+          <ResultEntry />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await fillForm()
+    expect(screen.getByLabelText('공정')).toHaveValue('10')
+    act(() => go('/results/new?wo=3'))
+    await waitFor(() => expect(optionTexts(screen.getByLabelText('공정')).join('|')).toContain('FCT'))
+    expect(screen.getByLabelText('공정')).toHaveValue('')
+    expect(screen.getByLabelText('설비')).toHaveValue('')
+    expect(screen.getByLabelText('설비')).toBeDisabled()
+  })
+
+  describe('클라이언트 검증', () => {
+    const cases: [string, (() => void) | (() => Promise<void>), RegExp][] = [
+      ['양품 수량 음수', () => pick(screen.getByLabelText('양품 수량'), '-1'), /양품 수량/],
+      ['양품 수량 소수', () => pick(screen.getByLabelText('양품 수량'), '1.5'), /양품 수량/],
+      ['양품 수량 비어 있음', () => pick(screen.getByLabelText('양품 수량'), ''), /양품 수량/],
+      ['소요 시간 0', () => pick(screen.getByLabelText('소요 시간(분)'), '0'), /소요 시간/],
+      ['소요 시간 61', () => pick(screen.getByLabelText('소요 시간(분)'), '61'), /소요 시간/],
+      ['소요 시간 비어 있음', () => pick(screen.getByLabelText('소요 시간(분)'), ''), /소요 시간/],
+      ['불량 수량 0', () => {
+        fireEvent.click(screen.getByRole('button', { name: '불량 행 추가' }))
+        pick(screen.getByLabelText('불량코드'), '5')
+        pick(screen.getByLabelText('불량 수량'), '0')
+      }, /불량 수량/],
+      ['불량코드 미선택', () => fireEvent.click(screen.getByRole('button', { name: '불량 행 추가' })), /불량코드/],
+    ]
+    it.each(cases)('%s 이면 요청 없이 한국어 메시지를 보여준다', async (_n, act2, msg) => {
+      const fn = mockApi()
+      renderPage('?wo=1')
+      await fillForm()
+      await act2()
+      fireEvent.click(screen.getByRole('button', { name: '실적 등록' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(msg)
+      expect(posts(fn)).toHaveLength(0)
+    })
   })
 })

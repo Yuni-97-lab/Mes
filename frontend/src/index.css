@@ -164,3 +164,4 @@ a { color: var(--accent); }
 .detail-grid .card + .card { margin-top: 0; }
 .lot-scroll { max-height: 420px; overflow: auto; }
 @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .defect-row { grid-template-columns: 1fr 1fr; } }
+.status-done { color: #475467; background: #eaecf0; }

@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useWorkOrderDetail } from '../api/hooks'
-import { Progress, WoStatusPill } from './WorkOrders'
+import { Progress, WoStatusPill } from '../components/WoStatus'
 
 const fmtTime = (s: string) => s.replace('T', ' ').slice(0, 19)
 

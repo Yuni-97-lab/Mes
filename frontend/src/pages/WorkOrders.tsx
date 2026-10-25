@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkOrders } from '../api/hooks'
+import { Progress, WoStatusPill } from '../components/WoStatus'
 import { WorkOrderForm } from '../components/WorkOrderForm'
-
-export const STATUS_LABEL: Record<string, string> = { PLANNED: '대기', RUNNING: '진행중', DONE: '완료' }
 
 const TABS: { label: string; status?: string }[] = [
   { label: '전체' },
@@ -11,25 +10,6 @@ const TABS: { label: string; status?: string }[] = [
   { label: '대기', status: 'PLANNED' },
   { label: '완료', status: 'DONE' },
 ]
-
-export function WoStatusPill({ status }: { status: string }) {
-  const cls = status === 'RUNNING' ? 'status-run' : status === 'PLANNED' ? 'status-idle' : 'status-unknown'
-  return (
-    <span className={`status-badge ${cls}`}>
-      <span className="status-dot" aria-hidden="true" />
-      {STATUS_LABEL[status] ?? status}
-    </span>
-  )
-}
-
-export function Progress({ pct }: { pct: number }) {
-  const p = Math.max(0, Math.min(100, pct))
-  return (
-    <div className="progress" role="progressbar" aria-valuenow={p} aria-valuemin={0} aria-valuemax={100} aria-label="진행률">
-      <div className="progress-fill" style={{ width: `${p}%` }} />
-    </div>
-  )
-}
 
 export function WorkOrders() {
   const [status, setStatus] = useState<string | undefined>()
@@ -90,7 +70,9 @@ export function WorkOrders() {
                 className="clickable"
                 tabIndex={0}
                 onClick={() => nav(`/work-orders/${w.wo_id}`)}
-                onKeyDown={(e) => { if (e.key === 'Enter') nav(`/work-orders/${w.wo_id}`) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(`/work-orders/${w.wo_id}`) }
+                }}
               >
                 <td><strong>WO-{w.wo_id}</strong></td>
                 <td>{w.item_name} <span className="muted">{w.item_code}</span></td>
