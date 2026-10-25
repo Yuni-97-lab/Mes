@@ -4,3 +4,5 @@ __pycache__/
 .superpowers/
 *.pyc
 .pytest_cache/
+node_modules/
+frontend/dist/
