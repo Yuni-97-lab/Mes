@@ -342,3 +342,31 @@ def test_cli_once_never_writes_future_and_parks_on_exit(monkeypatch):
     finally:
         with connect(TEST_DB) as conn:
             reset_schema(conn)
+
+
+def test_step_survives_conflicting_open_status_log(seeded_db):
+    """API 상태 변경과의 경쟁 재현: 시뮬레이터가 읽는 '최신' 로그(A, 닫힘)와 다른 열린 로그(B, API 가 연 것)가
+    동시에 존재. 예전에는 A 를 이어 새 로그를 INSERT 하다 유일 인덱스(설비당 열린 로그 1개) 위반으로 프로세스가 죽었다.
+    이제 그 설비만 이번 틱을 건너뛰고 나머지는 정상 진행한다."""
+    conn = seeded_db
+    rng = random.Random(3)
+    ensure_work_orders(conn, 3, rng, now=T0)
+    conn.execute("insert into equipment_status_log (equipment_id, status, started_at, ended_at)"
+                 " values (1, 'RUN', %s, %s)", (T0 - timedelta(minutes=5), T0 - timedelta(minutes=1)))
+    conn.execute("insert into equipment_status_log (equipment_id, status, started_at)"
+                 " values (1, 'DOWN', %s)", (T0 - timedelta(minutes=10),))   # B: 더 이른 시작, 열린 상태
+    step(conn, T0 + timedelta(minutes=1), rng, tick_seconds=60)
+    assert _scalar(conn, "select count(*) from equipment_status_log where equipment_id = 1 and ended_at is null") == 1
+    # 다른 설비는 이번 틱에 정상적으로 로그가 열렸고, 같은 연결로 다음 틱도 계속 진행된다
+    assert _scalar(conn, "select count(distinct equipment_id) from equipment_status_log") == 12
+    step(conn, T0 + timedelta(minutes=2), rng, tick_seconds=60)
+
+
+def test_rm_lot_numbering_skips_taken_numbers(seeded_db):
+    """공급사 LOT 번호(count+1)가 이미 쓰인 경우(다른 쓰기 주체와의 경쟁 등) 빈 번호로 넘어간다."""
+    from simulator.simulate import _rm_parents
+    conn = seeded_db
+    pcb, ic = (_scalar(conn, "select item_id from item where item_code = %s", (c,)) for c in ("RM-PCB", "RM-IC"))
+    conn.execute("insert into lot (lot_no, item_id, qty, created_at) values ('RM-PCB-0001', %s, 1, %s)", (ic, T0))
+    out = _rm_parents(conn, pcb, "RM-PCB", 5, T0, random.Random(1))
+    assert [_scalar(conn, "select lot_no from lot where lot_id = %s", (lid,)) for lid, _ in out] == ["RM-PCB-0002"]

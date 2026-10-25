@@ -234,9 +234,15 @@ def _fifo(conn, where, params, need):
 def _rm_parents(conn, child_id, child_code, need, at, rng):
     """원자재 LOT 선입선출 할당. 잔량이 모자라면 새 공급사 LOT(입고)를 만든다. 번호: <품목코드>-<순번 4자리>."""
     out, short = _fifo(conn, "l.item_id = %s AND l.wo_id IS NULL", (child_id,), need)
+    if short > 0:
+        # 시뮬레이터와 수동 입력(API)이 동시에 공급사 LOT 을 만들면 같은 count+1 번호를 쓰게 되므로
+        # 트랜잭션 단위 advisory lock 으로 입고 LOT 생성을 직렬화한다 (커밋/롤백 시 자동 해제).
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('mes.rm_lot_no'))")
     while short > 0:
         n = conn.execute("SELECT count(*) FROM lot WHERE item_id=%s AND wo_id IS NULL",
                          (child_id,)).fetchone()[0] + 1
+        while conn.execute("SELECT 1 FROM lot WHERE lot_no = %s", (f"{child_code}-{n:04d}",)).fetchone():
+            n += 1   # 이미 쓰인 번호는 건너뜀
         size = max(RM_LOT_SIZE, short)
         lot_id = conn.execute(
             "INSERT INTO lot (lot_no, item_id, supplier_lot_no, qty, created_at) VALUES (%s,%s,%s,%s,%s) "
@@ -333,9 +339,13 @@ def step(conn, now: datetime, rng: random.Random, tick_seconds: float = 60) -> i
     틱이 교대 경계를 걸치면 경계에서 실적을 나눈다(실적 교대 = 실적 시작 시각의 교대).
     투입 가능 수량이 먼저 바닥나면 그 시각에 RUN 을 끝내고 IDLE(자재대기)로 바꾼다 (일감 없는 RUN 시간 없음).
     재고 부족(CheckViolation)·초과생산/재고 행 없음(RaiseException)은 savepoint 롤백으로 해당 실적만 건너뛴다.
+    API 와의 동시 실행: 열린 상태 로그를 잠근 뒤 읽고, 그래도 열린 로그 충돌(UniqueViolation)이 나면 그 설비만 이번 틱을 건너뛴다.
     """
     ctx = _context(conn)
     t0 = now - timedelta(seconds=tick_seconds)
+    # 이번 틱에 닫을 수 있는 열린 로그를 먼저 잠근다: API 상태 변경과 동시에 실행되면 한쪽이 커밋할 때까지 기다리고,
+    # 잠근 뒤 읽으므로 상대가 커밋한 최신 로그를 본다 (READ COMMITTED: 문장마다 새 스냅샷).
+    conn.execute("SELECT log_id FROM equipment_status_log WHERE ended_at IS NULL ORDER BY log_id FOR UPDATE")
     latest = {r[0]: r[1:] for r in conn.execute("""
         SELECT DISTINCT ON (equipment_id) equipment_id, log_id, status, reason_id, started_at, ended_at
         FROM equipment_status_log ORDER BY equipment_id, started_at DESC, log_id DESC""")}
@@ -345,8 +355,12 @@ def step(conn, now: datetime, rng: random.Random, tick_seconds: float = 60) -> i
     inserted = 0
     for eid, line_id, process_id in equipments:
         work = _find_work(conn, ctx, line_id, process_id)
-        log_id, status, since = _transition(conn, ctx, eid, latest.get(eid), t0, rng, tick_seconds,
-                                            work is not None)
+        try:
+            with conn.transaction():   # 설비별 savepoint: 충돌 시 이 설비의 전이만 롤백
+                log_id, status, since = _transition(conn, ctx, eid, latest.get(eid), t0, rng, tick_seconds,
+                                                    work is not None)
+        except psycopg.errors.UniqueViolation:
+            continue   # 다른 쓰기(API 상태 변경)가 먼저 열린 로그를 만듦: 이 설비는 이번 틱을 건너뛰고 다음 틱에 최신 로그로 이어 감
         if status != "RUN" or work is None:
             continue
         wo_id, item_id, idx, headroom = work
@@ -393,8 +407,8 @@ def _produce(conn, ctx, eq, wo, idx, headroom, start, stop, rng):
         with conn.transaction():
             _insert_result(conn, ctx, wo, eq, idx, qty - defect, defect,
                            _shift_id(ctx["shifts"], start), start, end, rng)
-    except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException):
-        return 0, stop   # 재고 부족/초과생산: 이 실적만 건너뜀 (다음 틱에 재시도)
+    except (psycopg.errors.CheckViolation, psycopg.errors.RaiseException, psycopg.errors.UniqueViolation):
+        return 0, stop   # 재고 부족/초과생산/동시 입력과의 번호 충돌: 이 실적만 건너뜀 (다음 틱에 재시도)
     return qty, end
 
 
@@ -415,7 +429,7 @@ def park_equipment(conn, at: datetime) -> int:
     """
     rows = conn.execute("""SELECT log_id, equipment_id, started_at FROM equipment_status_log
                            WHERE ended_at IS NULL AND NOT (status = 'IDLE' AND reason_id IS NULL)
-                           ORDER BY equipment_id""").fetchall()
+                           ORDER BY equipment_id FOR UPDATE""").fetchall()
     for log_id, eid, started in rows:
         _set_state(conn, eid, log_id, max(at, started), "IDLE", None)
     return len(rows)
