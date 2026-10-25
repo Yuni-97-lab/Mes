@@ -22,8 +22,12 @@ export function Dashboard() {
 
   const failed = [kpi, oee, defects, wos].find((q) => q.isError)
   const loaded = kpi.data && oee.data && defects.data
+  // 빈 DB 에서도 /api/defects 는 공정 6개를 투입 0 으로 돌려준다(process LEFT JOIN) → 행 수가 아니라 투입량으로 판정
   const empty =
-    !!loaded && kpi.data!.avg_oee == null && oee.data!.length === 0 && defects.data!.length === 0
+    !!loaded &&
+    kpi.data!.avg_oee == null &&
+    oee.data!.length === 0 &&
+    defects.data!.every((d) => d.input_qty === 0)
 
   // 서버가 준 정렬 순서를 그대로 유지한다 (재정렬 금지).
   const oeeData = (oee.data ?? []).map((r) => ({ name: r.equipment_name, value: +(r.oee * 100).toFixed(1) }))

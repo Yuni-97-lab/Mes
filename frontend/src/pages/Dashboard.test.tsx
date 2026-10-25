@@ -30,16 +30,36 @@ function renderDashboard() {
 
 afterEach(() => vi.unstubAllGlobals())
 
+// 실제 백엔드는 빈 DB 에서도 v_defect_rate(process LEFT JOIN) 때문에 공정 6개를 투입 0 으로 돌려준다
+const ZERO_DEFECTS = ['MATIN', 'SMT', 'AOI', 'ASM', 'FCT', 'PACK'].map((process_code) => ({
+  process_code, input_qty: 0, defect_qty: 0, scrap_qty: 0, rework_qty: 0, defect_rate: 0, fty: 1,
+}))
+const EMPTY_KPI = { avg_oee: null, defect_rate: null, running_equipment: 0, total_equipment: 12 }
+
 describe('Dashboard', () => {
-  it('데이터가 없으면 안내 문구를 보여준다', async () => {
+  it('빈 DB(공정 6개 투입 0 행)이면 안내 문구를 보여주고 차트를 숨긴다', async () => {
     mockApi({
-      '/api/kpi': { avg_oee: null, defect_rate: null, running_equipment: 0, total_equipment: 12 },
+      '/api/kpi': EMPTY_KPI,
       '/api/oee/equipment': [],
-      '/api/defects': [],
+      '/api/defects': ZERO_DEFECTS,
       '/api/work-orders': [],
     })
     renderDashboard()
     expect(await screen.findByText(/데이터가 없습니다. 시뮬레이터를 실행하세요/)).toBeInTheDocument()
+    expect(screen.queryByText('공정별 불량률 (%)')).not.toBeInTheDocument()
+  })
+
+  it('불량 집계에 투입이 하나라도 있으면 안내 문구를 보여주지 않는다', async () => {
+    const defects = ZERO_DEFECTS.map((d) => (d.process_code === 'MATIN' ? { ...d, input_qty: 10 } : d))
+    mockApi({
+      '/api/kpi': { ...EMPTY_KPI, defect_rate: 0 },
+      '/api/oee/equipment': [],
+      '/api/defects': defects,
+      '/api/work-orders': [],
+    })
+    renderDashboard()
+    expect(await screen.findByText('공정별 불량률 (%)')).toBeInTheDocument()
+    expect(screen.queryByText(/데이터가 없습니다/)).not.toBeInTheDocument()
   })
 
   it('값이 있으면 평균 OEE 카드에 퍼센트를 표시한다', async () => {
