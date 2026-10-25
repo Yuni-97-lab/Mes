@@ -148,3 +148,67 @@ def test_trace_edge_cases(client):
     assert client.get("/api/lots/UNKNOWN/trace?direction=forward").json() == []
     assert client.get("/api/lots/UNKNOWN/trace?direction=backward").json() == []
     assert client.get("/api/lots/X/trace?direction=sideways").status_code == 400
+
+
+# --- 삭제된 Streamlit 쿼리 테스트(tests/test_dashboard_queries.py)에서 이전한, 실제 행이 있는 지표 검증 ---
+
+def _log(conn, equipment_name, status, start, end):
+    conn.execute(
+        "insert into equipment_status_log(equipment_id, status, started_at, ended_at)"
+        " select equipment_id, %s, %s::timestamptz, %s::timestamptz from equipment where name = %s",
+        (status, start, end, equipment_name))
+
+
+def _sfg_wo(conn, qty=5000):
+    return conn.execute(
+        "insert into work_order(item_id, line_id, planned_qty) select i.item_id, l.line_id, %s"
+        " from item i, line l where i.item_code = 'SFG-P01' and l.name = '라인1' returning wo_id",
+        (qty,)).fetchone()[0]
+
+
+def _result(conn, wo_id, equipment_name, started_at, good, defect=0):
+    lot_id = conn.execute(
+        "insert into lot(lot_no, item_id, wo_id) select 'LOT-' || gen_random_uuid(), item_id, wo_id"
+        " from work_order where wo_id = %s returning lot_id", (wo_id,)).fetchone()[0]
+    conn.execute(
+        "insert into production_result(wo_id, process_id, equipment_id, shift_id, lot_id, started_at,"
+        " ended_at, good_qty, defect_qty)"
+        " select %s, e.process_id, e.equipment_id, s.shift_id, %s, %s::timestamptz, %s::timestamptz, %s, %s"
+        " from equipment e, shift s where e.name = %s and s.name = '주간'",
+        (wo_id, lot_id, started_at, started_at, good, defect, equipment_name))
+
+
+def test_oee_equipment_ordered_by_line_then_process_seq(client, seeded_db):
+    for name in ("L2-SMT-01", "L1-AOI-01", "L1-SMT-01", "L1-자재투입기"):
+        _log(seeded_db, name, "RUN", "2026-03-10 08:00", "2026-03-10 10:00")
+    rows = client.get("/api/oee/equipment").json()
+    assert [r["equipment_name"] for r in rows] == ["L1-자재투입기", "L1-SMT-01", "L1-AOI-01", "L2-SMT-01"]
+
+
+def test_kpi_oee_and_defects_with_real_rows_are_numeric(client, seeded_db):
+    # 오래된 교대(3/10 주간)는 로그만 있어 OEE 0, 최근 교대(3/12 주간)만 집계 대상이어야 한다.
+    _log(seeded_db, "L1-SMT-01", "RUN", "2026-03-10 08:00", "2026-03-10 20:00")
+    _log(seeded_db, "L1-SMT-01", "RUN", "2026-03-12 08:00", "2026-03-12 20:00")
+    # SMT 이상 사이클 x 1200개 / 12h -> 성능률, 불량 30개
+    _result(seeded_db, _sfg_wo(seeded_db), "L1-SMT-01", "2026-03-12 09:00", good=1200, defect=30)
+    ideal = float(seeded_db.execute(
+        "select ideal_cycle_sec from routing join item using (item_id) join process using (process_id)"
+        " where item_code = 'SFG-P01' and code = 'SMT'").fetchone()[0])
+    expected = ideal * 1230 / (12 * 3600) * (1200 / 1230)
+
+    kpi = client.get("/api/kpi").json()
+    assert isinstance(kpi["avg_oee"], float) and kpi["avg_oee"] == pytest.approx(expected, abs=1e-4)
+    assert isinstance(kpi["defect_rate"], float) and kpi["defect_rate"] == pytest.approx(30 / 1230, abs=1e-4)
+
+    oee = {r["equipment_name"]: r for r in client.get("/api/oee/equipment").json()}
+    smt = oee["L1-SMT-01"]
+    assert all(isinstance(smt[k], float) for k in ("oee", "availability", "performance", "quality"))
+    assert smt["oee"] == pytest.approx(expected, abs=1e-4)
+    assert smt["quality"] == pytest.approx(1200 / 1230, abs=1e-4)
+
+    defects = client.get("/api/defects").json()
+    assert [d["process_code"] for d in defects] == ["MATIN", "SMT", "AOI", "ASM", "FCT", "PACK"]
+    d = next(d for d in defects if d["process_code"] == "SMT")
+    assert d["input_qty"] == 1230 and d["defect_qty"] == 30
+    assert isinstance(d["defect_rate"], float) and d["defect_rate"] == pytest.approx(30 / 1230, abs=1e-4)
+    assert isinstance(d["fty"], float)
