@@ -1,0 +1,20 @@
+# 로컬 개발용 PostgreSQL 16 (Docker 사용 시)
+# 시간대: postgres 이미지 기본값은 UTC 이므로 Asia/Seoul 로 고정한다
+# (mes/db.py 의 connect() 도 세션마다 timezone=Asia/Seoul 을 지정한다).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mes
+      POSTGRES_PASSWORD: mes
+      POSTGRES_DB: mes
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
+    command: ["postgres", "-c", "timezone=Asia/Seoul", "-c", "log_timezone=Asia/Seoul"]
+    ports:
+      - "5432:5432"
+    volumes:
+      - mes_pgdata:/var/lib/postgresql/data
+      - ./scripts/docker_init_test_db.sh:/docker-entrypoint-initdb.d/10_test_db.sh:ro
+volumes:
+  mes_pgdata:
