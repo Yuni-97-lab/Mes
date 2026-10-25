@@ -160,7 +160,7 @@ erDiagram
 
 ## 지표 정의
 
-지표는 모두 SQL(뷰/함수/트리거)에서 계산한다. Python 대시보드는 결과를 읽기만 한다.
+지표는 모두 SQL(뷰/함수/트리거)에서 계산한다. FastAPI 와 React 화면은 결과를 읽어 표시하기만 한다.
 구현: [`sql/03_functions_triggers.sql`](../sql/03_functions_triggers.sql), [`sql/04_views.sql`](../sql/04_views.sql).
 
 ### OEE (`v_oee_daily`)
@@ -181,14 +181,14 @@ erDiagram
 - **그 밖에 분모가 0이면** 해당 비율은 0 (`NULLIF`/`COALESCE`), 오류 없음.
 - **교대와 work_date 규칙**: 시드의 주간 08:00–20:00, 야간 20:00–08:00. `work_date` 는 교대가 **시작한** 달력 날짜다. 야간조의 자정 이후 구간(00:00–08:00)은 전날 `work_date` 에 속한다. 교대 창은 `work_date + start_time` 부터 교대길이(12시간)이며 `end_time <= start_time` 이면 익일로 넘어간다. 뷰의 `shift_start`/`shift_end` 열이 교대 창(캡 적용 전)이다.
 - **시간대**: 날짜/시각 변환은 세션 `TimeZone` 기준이며, `mes.db.connect()` 가 세션마다 `Asia/Seoul` 로 고정한다(서버·Docker 기본값 UTC 와 무관). `scripts/create_dbs.sql` 과 Docker 초기화 스크립트도 DB 기본 시간대를 `Asia/Seoul` 로 둔다.
-- **대시보드 집계 범위**: KPI 카드의 평균 OEE 와 설비별 OEE 차트는 `shift_end > max(shift_end) - 24시간`, 즉 데이터가 있는 최근 2개 교대 창의 행 평균이다.
+- **대시보드 집계 범위**: 웹 대시보드(`backend/app/routers/read.py` 의 `RECENT_OEE`)의 KPI 카드 평균 OEE 와 설비별 OEE 차트는 `shift_end > max(shift_end) - 24시간`, 즉 데이터가 있는 최근 2개 교대 창의 행 평균이다.
 
 ### 불량률과 FTY (`v_defect_rate`)
 - 공정별: `input_qty = 양품+불량`, `defect_rate = 불량 / 투입` (투입 0 이면 0).
 - `scrap_qty`, `rework_qty` 는 `defect_record.kind` 별 합계.
 - **FTY(First Time Yield)** = 투입이 있는 모든 공정의 `양품/(양품+불량)` 의 곱. 전체 공정에 대한 단일 값이라 각 행에 같은 값이 반복된다. 투입 없는 공정은 곱에서 제외하고, 투입이 있는 공정 중 양품 0 인 곳이 있으면 FTY 는 0.
 - 시드의 공정은 6개이지만 공정별 합산 기준이라, SFG 와 FG 라우팅이 서로 다른 공정을 쓰는데도 FTY 는 6개 공정 전부의 곱이다. 즉 한 제품의 실제 경로 수율이 아니라 공장 전체 공정 수율의 곱이다.
-- 대시보드의 "전체 불량률"은 `sum(defect_qty) / sum(input_qty)` (공정 합산 풀링 비율)이다.
+- 웹 대시보드의 "불량률"(`/api/kpi`)은 `sum(defect_qty) / sum(input_qty)` (공정 합산 풀링 비율)이다.
 
 ### 작업지시 진행률 (`v_wo_progress`)
 `progress_pct = 100 x 마지막 공정 누적 양품 / planned_qty` (소수 1자리). "마지막 공정"은 해당 품목 `routing` 에서 `seq` 가 가장 큰 공정이다.
@@ -217,6 +217,7 @@ erDiagram
 - **첫 공정의 반제품 투입**(완제품 조립): 그 반제품 품목 라우팅의 **마지막 공정**(AOI 검사)을 통과한 LOT 만 투입한다. 자재투입·SMT 단계의 미검사 LOT 는 연결되지 않는다.
 - **첫 공정의 원자재 투입**: 공급사 LOT(`<품목코드>-<순번 4자리>`, 예 `RM-IC-0001`, 1만 개 단위, `supplier_lot_no` 보유, `wo_id` NULL)를 여러 작업지시가 나눠 쓰고, 잔량이 모자라면 새 공급사 LOT 를 만든다.
 - **이후 공정**: 같은 작업지시의 바로 앞 공정 LOT.
+- **웹에서 수동 입력한 실적**(`POST /api/results`, `backend/app/services/results.py`)도 같은 계보 규칙을 쓴다. LOT 번호는 `WO-<작업지시>-<공정코드>-M<순번>` 이며 `M` 접두사로 시뮬레이터의 순번(`WO-<작업지시>-<공정코드>-<순번>`)과 구분한다. 한 실적에 LOT 하나를 만들고(`lot.qty` = 양품), 시각은 서버 현재 시각(KST) 기준이며 시작 시각은 입력한 소요 시간(분)으로 계산한다. 교대는 종료 시각의 교대로 귀속하고 경계에서 실적을 나누지 않는다(시뮬레이터는 나눈다). 불량 내역은 `(불량코드, 구분)`별로 합산해 `defect_record` 에 넣고 `defect_qty`(재작업+폐기)와 `rework_qty` 를 같은 합계로 저장한다.
 - `tests/test_simulator.py::test_lot_genealogy_follows_routing` 이 위 규칙을 검증한다. 실제 바코드 투입 실적이 아니라 규칙으로 만든 계보이며, 원자재 LOT 는 계보용이고 재고 수량과는 별도다.
 
 ### 시뮬레이터 동작 모델 (요약)
