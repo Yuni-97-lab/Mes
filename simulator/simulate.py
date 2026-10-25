@@ -248,6 +248,28 @@ def _rm_parents(conn, child_id, child_code, need, at, rng):
     return out
 
 
+def lineage_parents(conn, ctx, wo_id, item_id, routing_idx, prev_process, qty_in, started, rng):
+    """생성 LOT 의 투입(부모) LOT 할당 [(lot_id, 수량)]. 시뮬레이터와 수동 실적 입력(API)이 공유한다.
+
+    첫 공정(routing_idx == 0): BOM 자식별로 소요량(qty_per x 투입수) 선입선출.
+      원자재는 공급사 LOT, 반제품은 그 품목 라우팅 "마지막 공정"(완성 반제품) LOT 중 잔량 있는 것.
+    이후 공정: 같은 작업지시의 바로 앞 공정(prev_process) LOT 중 잔량 있는 것을 선입선출.
+    """
+    parents = []
+    if routing_idx == 0:
+        for child_id, qty_per in ctx["bom"].get(item_id, []):
+            need = qty_per * qty_in
+            if ctx["item_type"][child_id] == "RM":
+                parents += _rm_parents(conn, child_id, ctx["item_code"][child_id], need, started, rng)
+            else:
+                finished = ctx["routing"][child_id][-1][0]
+                parents += _fifo(conn, "l.item_id = %s AND l.process_id = %s AND l.wo_id IS NOT NULL",
+                                 (child_id, finished), need)[0]
+    else:
+        parents += _fifo(conn, "l.wo_id = %s AND l.process_id = %s", (wo_id, prev_process), qty_in)[0]
+    return parents
+
+
 def _insert_result(conn, ctx, wo, eq, routing_idx, good, defect, shift_id, started, ended, rng):
     """LOT·실적·불량내역·LOT 계보를 한 번에 적재한다 (호출자가 savepoint 로 감싼다).
 
@@ -266,18 +288,7 @@ def _insert_result(conn, ctx, wo, eq, routing_idx, good, defect, shift_id, start
         "VALUES (%s,%s,%s,%s,%s,%s) RETURNING lot_id",
         (f"WO-{wo_id}-{pcode}-{seq}", item_id, wo_id, process_id, good, ended)).fetchone()[0]
 
-    parents = []
-    if routing_idx == 0:
-        for child_id, qty_per in ctx["bom"].get(item_id, []):
-            need = qty_per * qty_in
-            if ctx["item_type"][child_id] == "RM":
-                parents += _rm_parents(conn, child_id, ctx["item_code"][child_id], need, started, rng)
-            else:
-                finished = ctx["routing"][child_id][-1][0]
-                parents += _fifo(conn, "l.item_id = %s AND l.process_id = %s AND l.wo_id IS NOT NULL",
-                                 (child_id, finished), need)[0]
-    else:
-        parents += _fifo(conn, "l.wo_id = %s AND l.process_id = %s", (wo_id, eq["prev_process"]), qty_in)[0]
+    parents = lineage_parents(conn, ctx, wo_id, item_id, routing_idx, eq["prev_process"], qty_in, started, rng)
     for pid, q in parents:
         conn.execute("INSERT INTO lot_consumption (parent_lot_id, child_lot_id, qty) VALUES (%s,%s,%s)",
                      (pid, lot_id, q))

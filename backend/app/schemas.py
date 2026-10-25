@@ -1,7 +1,8 @@
 """API 응답 모델. Decimal 은 float 로 강제 변환된다."""
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Kpi(BaseModel):
@@ -170,3 +171,40 @@ class TraceRow(BaseModel):
 
 class TraceBackRow(TraceRow):
     supplier_lot_no: str | None
+
+
+# ---- 입력(요청) 모델 ----
+class WorkOrderIn(BaseModel):
+    item_id: int
+    line_id: int
+    planned_qty: int = Field(gt=0)
+    due_date: date
+
+
+class WorkOrderCreated(BaseModel):
+    wo_id: int
+
+
+class DefectIn(BaseModel):
+    defect_id: int
+    kind: Literal["rework", "scrap"]
+    qty: int = Field(gt=0)
+
+
+class ResultIn(BaseModel):
+    wo_id: int
+    process_id: int
+    equipment_id: int
+    minutes: float = 1   # 범위(0 < m <= 60) 검증은 서비스에서 한국어 메시지로
+    good_qty: int = Field(ge=0)
+    defects: list[DefectIn] = []
+
+
+class ResultCreated(BaseModel):
+    result_id: int
+    lot_no: str
+
+
+class StatusIn(BaseModel):
+    status: Literal["RUN", "IDLE", "DOWN"]
+    reason_id: int | None = None
