@@ -74,3 +74,38 @@ body { margin: 0; background: var(--bg); font-size: 14px; line-height: 1.5; }
   .kpi-grid, .chart-grid { grid-template-columns: 1fr; }
   .content { padding: 20px 16px; }
 }
+
+/* 공장 현황 (Digital Twin) */
+.chip-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px; font-weight: 600; }
+.chip strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.chip-note { margin-left: auto; font-size: 12px; }
+.floor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.floor-card { padding: 14px; }
+.floor-svg { width: 100%; height: auto; display: block; font-family: inherit; }
+.floor-header-bg { fill: var(--sidebar); }
+.floor-header { fill: #fff; font-size: 17px; font-weight: 700; }
+.floor-row-bg { fill: var(--bg); stroke: var(--border); }
+.floor-line-label { fill: var(--text); font-size: 18px; font-weight: 700; }
+.floor-flow { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 5 4; animation: flow-dash 1s linear infinite; }
+@keyframes flow-dash { to { stroke-dashoffset: -9; } }
+.floor-eq { cursor: pointer; outline: none; }
+.floor-eq:hover .floor-eq-body { filter: brightness(0.97); }
+.floor-eq:focus-visible .floor-eq-body { stroke: var(--accent); stroke-width: 3; }
+.floor-eq-name { font-size: 16px; font-weight: 700; fill: var(--text); }
+.floor-eq-status { font-size: 16px; font-weight: 700; }
+.floor-select-ring { fill: none; stroke: var(--accent); stroke-width: 3; }
+.floor-eq.down .floor-eq-body { animation: down-pulse 1.4s ease-in-out infinite; }
+@keyframes down-pulse { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .floor-flow, .floor-eq.down .floor-eq-body { animation: none; }
+}
+.eq-panel { position: sticky; top: 16px; }
+.eq-facts { display: grid; grid-template-columns: 90px 1fr; gap: 6px 8px; margin: 0 0 14px; }
+.eq-facts dt { color: var(--muted); }
+.eq-facts dd { margin: 0; }
+.eq-sub { font-size: 13px; margin: 14px 0 6px; }
+.eq-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.eq-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px; border-bottom: 1px solid var(--border); }
+.eq-table td { padding: 4px; border-bottom: 1px solid var(--grid); }
+@media (max-width: 1100px) { .floor-layout { grid-template-columns: 1fr; } .eq-panel { position: static; } }

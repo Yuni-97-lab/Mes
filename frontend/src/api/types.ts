@@ -63,3 +63,27 @@ export interface Lookups {
   reasons: ReasonRow[]
   defect_codes: DefectCodeRow[]
 }
+
+export interface OeeShift {
+  shift_name: string
+  work_date: string
+  availability: number
+  performance: number
+  quality: number | null
+  oee: number
+  shift_start: string
+  shift_end: string
+}
+
+export interface ResultRow {
+  result_id: number
+  wo_id: number
+  good_qty: number
+  defect_qty: number
+  ended_at: string
+}
+
+export interface EquipmentDetail extends Equipment {
+  recent_oee: OeeShift[]
+  recent_results: ResultRow[]
+}

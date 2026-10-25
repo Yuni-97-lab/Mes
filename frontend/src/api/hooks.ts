@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from './client'
-import type { DefectRow, Equipment, Kpi, Lookups, OeeEquipment, WorkOrder } from './types'
+import type { DefectRow, Equipment, EquipmentDetail, Kpi, Lookups, OeeEquipment, WorkOrder } from './types'
 
 const POLL_MS = 5000
 
@@ -40,5 +40,13 @@ export const useLookups = () =>
   useQuery({
     queryKey: ['lookups'],
     queryFn: () => apiGet<Lookups>('/api/lookups'),
+    refetchInterval: POLL_MS,
+  })
+
+export const useEquipmentDetail = (id: number | null) =>
+  useQuery({
+    queryKey: ['equipment', id],
+    queryFn: () => apiGet<EquipmentDetail>(`/api/equipment/${id}`),
+    enabled: id != null,
     refetchInterval: POLL_MS,
   })
