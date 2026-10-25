@@ -144,6 +144,11 @@ function EntryForm({ woId }: { woId: number | null }) {
               <input type="number" min={0} max={60} step="any" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
             </label>
           </div>
+          {process && processes.indexOf(process) > 0 && (
+            <p className="muted field-hint">
+              후공정은 전공정 재공(직전 공정 누적 양품 − 이 공정 누적 투입)까지만 입력할 수 있습니다. 투입 = 양품 + 불량.
+            </p>
+          )}
 
           <h2 className="card-title form-section">불량 내역</h2>
           <DefectRows rows={defects} codes={lookups.data?.defect_codes ?? []} onChange={setDefects} />

@@ -129,6 +129,21 @@ describe('ResultEntry', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('작업지시 수량을 초과합니다')
   })
 
+  it('후공정을 고르면 재공 한도 안내를, 422 재공 부족이면 서버 문구를 그대로 보여준다', async () => {
+    mockApi(() => json({ detail: '전공정 재공이 부족합니다 (가능 수량: 3)' }, 422))
+    renderPage('?wo=1')
+    const proc = await screen.findByLabelText('공정')
+    await waitFor(() => expect(proc).toBeEnabled())
+    pick(proc, '10')
+    expect(screen.queryByText(/전공정 재공\(/)).not.toBeInTheDocument()   // 첫 공정은 안내 없음
+    pick(proc, '20')
+    expect(screen.getByText(/전공정 재공\(/)).toBeInTheDocument()
+    pick(screen.getByLabelText('설비'), '200')
+    pick(screen.getByLabelText('양품 수량'), '5')
+    fireEvent.click(screen.getByRole('button', { name: '실적 등록' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('전공정 재공이 부족합니다 (가능 수량: 3)')
+  })
+
   it('성공하면 lot_no 를 보여주고 수량을 초기화한다', async () => {
     mockApi()
     renderPage('?wo=1')

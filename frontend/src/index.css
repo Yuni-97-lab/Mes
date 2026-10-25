@@ -144,6 +144,9 @@ a { color: var(--accent); }
 .empty { padding: 28px; text-align: center; margin: 0; }
 
 .card + .card, .banner + .card, .card + .tabs { margin-top: 16px; }
+/* 그리드/플렉스 안에서 나란히 놓인 카드는 gap 으로 띄운다: 세로 쌓기용 margin 이 들어가면 옆 카드보다 16px 내려간다 */
+.kpi-grid > .card + .card, .chart-grid > .card + .card, .floor-layout > .card + .card { margin-top: 0; }
+.field-hint { margin: 4px 0 0; font-size: 12px; }
 .wo-form { margin-bottom: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 16px; margin-bottom: 8px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
