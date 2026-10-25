@@ -101,3 +101,59 @@ $$;
 CREATE TRIGGER trg_production_result_ai
 AFTER INSERT ON production_result
 FOR EACH ROW EXECUTE FUNCTION production_result_ai();
+
+
+-- ============================================================
+-- LOT 계보 추적 (WITH RECURSIVE)
+-- lot_consumption: parent_lot_id = 투입 LOT, child_lot_id = 생성 LOT
+-- 공통 규칙: 시작 LOT 제외, depth 는 1부터, 방문 경로 배열(path)로 순환 차단,
+--           여러 경로로 도달하는 LOT 는 최소 depth 한 번만 반환, 없는 lot_no 는 0행.
+-- ============================================================
+
+-- 정방향: 해당 LOT 를 투입해 만들어진 모든 하위 LOT (자식, 손자 ...)
+create or replace function trace_forward(p_lot_no text)
+returns table(lot_no text, item_code text, depth int)
+language sql stable
+as $$
+    with recursive walk as (
+        select c.child_lot_id as lot_id, 1 as depth,
+               array[s.lot_id, c.child_lot_id] as path
+        from lot s
+        join lot_consumption c on c.parent_lot_id = s.lot_id
+        where s.lot_no = p_lot_no
+        union all
+        select c.child_lot_id, w.depth + 1, w.path || c.child_lot_id
+        from walk w
+        join lot_consumption c on c.parent_lot_id = w.lot_id
+        where c.child_lot_id <> all (w.path)   -- 순환 방지
+    )
+    select distinct on (l.lot_id) l.lot_no, i.item_code, w.depth
+    from walk w
+    join lot l on l.lot_id = w.lot_id
+    join item i on i.item_id = l.item_id
+    order by l.lot_id, w.depth;
+$$;
+
+-- 역방향: 해당 LOT 가 만들어질 때 투입된 원료/반제품 LOT (부모, 조부모 ...)
+create or replace function trace_backward(p_lot_no text)
+returns table(lot_no text, item_code text, supplier_lot_no text, depth int)
+language sql stable
+as $$
+    with recursive walk as (
+        select c.parent_lot_id as lot_id, 1 as depth,
+               array[s.lot_id, c.parent_lot_id] as path
+        from lot s
+        join lot_consumption c on c.child_lot_id = s.lot_id
+        where s.lot_no = p_lot_no
+        union all
+        select c.parent_lot_id, w.depth + 1, w.path || c.parent_lot_id
+        from walk w
+        join lot_consumption c on c.child_lot_id = w.lot_id
+        where c.parent_lot_id <> all (w.path)  -- 순환 방지
+    )
+    select distinct on (l.lot_id) l.lot_no, i.item_code, l.supplier_lot_no, w.depth
+    from walk w
+    join lot l on l.lot_id = w.lot_id
+    join item i on i.item_id = l.item_id
+    order by l.lot_id, w.depth;
+$$;
